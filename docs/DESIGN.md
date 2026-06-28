@@ -381,9 +381,10 @@ Because every dependency is env-driven (§2.1), deploy is config, not code chang
 
 ## 15. Coding-Agent Usage (rubric)
 Built primarily with the **Claude Code** agent (Claude Opus 4.8), directed and reviewed by the
-author. Attribution is continuous (wired up **from the first commit**, not reconstructed later):
-- Commits carry `Co-Authored-By` trailers for agent-generated work.
-- `docs/agent-usage/NOTES.md` marks agent-generated vs hand-tuned files.
+author. Attribution is continuous (maintained **per phase**, not reconstructed later):
+- `docs/agent-usage/NOTES.md` is the attribution record — marks agent-generated vs hand-tuned
+  files per phase (the rubric accepts a NOTES file in lieu of per-commit co-author trailers).
+- Commit messages describe, in prose, what each change generated.
 - `docs/agent-usage/prompt-logs/` holds representative prompts/transcript excerpts (incl. this
   adversarial review).
 - `docs/agent-usage/WRITEUP.md` (≤ ½ page): tools used, delegate-vs-write split, and **a real
