@@ -108,3 +108,24 @@ download, `useSession` for the real attorney identity), `frontend/app/dashboard/
 `frontend/middleware.ts` (route guard). The design (Alma.dc.html) was authored by the user via
 Claude Design; pixel-faithful re-creation + live API/auth wiring by the agent. Verified: tsc
 clean, login renders, dashboard redirects when unauthenticated. Full interactive E2E in Phase 5.
+
+## Review pass — reversible state machine + soft delete (author-directed)
+Changes I drove after exercising the running app in the browser. Agent implemented; the calls were mine.
+- **Reversible state machine (author decision).** I decided the one human action — *Mark reached
+  out* — should be undoable, because a real attorney mis-clicks. `REACHED_OUT → PENDING` is now an
+  explicit undo that clears `reached_out_at`; the dashboard button toggles `Mark reached out` ⇄
+  `Mark pending`. The previously-"illegal" backward transition (`409`) became a first-class action.
+- **Soft delete, not hard delete (author override).** The agent began implementing *Delete* as a
+  real row + object delete. I redirected it — *"it shouldn't be a real delete, just mark as
+  deleted"* — because an immigration firm must never hard-destroy applicant data. Now `DELETE
+  /api/leads/{id}` stamps a `deleted_at` column (new Alembic migration `7f3a9c2b1e44`); the lead is
+  hidden from every listing/detail while the **row and resume are retained** (reversible,
+  audit-friendly). The dashboard + detail page expose it behind an **inline confirm** (no native
+  dialog). Agent wrote: the column, the `deleted_at IS NULL` listing filter, the route, the UI, and
+  the tests. Files: `models/lead.py`, `services/lead_service.py`, `repositories/lead_repository.py`,
+  `api/routes_leads.py`, `frontend/lib/leads-client.ts`, `frontend/app/dashboard/page.tsx` + `[id]/page.tsx`.
+- **Table alignment (author-flagged).** I pointed out that centering the applicant column staggered
+  the avatars; fix wraps avatar+name in a fixed-width block so every avatar lands on the same x.
+- **Tests:** backend now **35** (added reversible-undo + soft-delete coverage at the service and API
+  layers — including that a soft-deleted lead 404s, drops from listings, and keeps its resume);
+  frontend **20**. `tsc` + `ruff` clean; migration applied; verified live in the browser.

@@ -69,3 +69,17 @@ dashboard) before being committed. Two examples where verification caught real d
 - The **security review** flagged an unescaped-HTML XSS in the email templates → fixed + payload-tested.
 - An **integration test** failed on the `POST /api/leads` 422 handler returning a non-serializable
   Pydantic error object → fixed to a clean structured 422.
+
+---
+
+### 6. Director calls during the review pass (and overriding an agent default)
+After exercising the running app in a browser, the author directed several changes — and overrode
+an agent default on a decision that mattered:
+> **Author (redirecting a hard delete):** "well it shouldn't be a real delete right, just mark as deleted."
+
+The agent had started *Delete* as a hard delete (drop the DB row **and** the stored resume). The
+author's call turned it into a **soft delete** — `deleted_at` stamp, hidden from every list/detail,
+but the row and resume retained — the right model for an immigration firm that must never destroy
+applicant records. In the same pass the author drove the **reversible "undo"** on the state machine
+(`Mark reached out` ⇄ `Mark pending`) and a **table-alignment** fix (fixed-width avatar block so the
+avatars line up). Each landed with new tests and a live browser check before commit.

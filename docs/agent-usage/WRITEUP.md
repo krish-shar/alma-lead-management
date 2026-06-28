@@ -21,11 +21,15 @@ headless browser I drove for end-to-end verification; and an automated security 
 
 **What I decided vs. delegated.** I made the calls that shape the system: the stack (FastAPI,
 Next.js, Postgres, Better Auth), **asymmetric JWKS verification over a simpler shared-secret proxy**,
-the requirement interpretations (e.g. "update a lead" = the one-way state transition, not a CRUD
-editor), the data model, the UI direction, the auth hardening, and the phased build order. I
-delegated the mechanical implementation — scaffolding, the CRUD/storage/email plumbing, migrations,
-the auth wiring, the React components, the test suite — and I reviewed each phase against running
-evidence (curl, the test suite, a real browser) before moving on.
+the requirement interpretations (e.g. "update a lead" = a reversible state transition, not a CRUD
+editor), the data model, the UI direction, the auth hardening, and the phased build order. One
+concrete override: when the agent reached for a **hard delete** on the dashboard, I redirected it to
+a **soft delete** — an immigration firm must never be able to destroy applicant records, and the
+action should be reversible. The agent then implemented the `deleted_at` column, the listing filter,
+the migration, and the tests; the architectural call was mine. I delegated the mechanical
+implementation — scaffolding, the CRUD/storage/email plumbing, migrations, the auth wiring, the React
+components, the test suite — and I reviewed each phase against running evidence (curl, the test suite,
+a real browser) before moving on.
 
 **Where the agent was subtly wrong — and how I caught it.** The clearest case: the agent's first
 cut of the transactional **email templates interpolated the prospect's name and email straight into

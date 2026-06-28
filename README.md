@@ -16,7 +16,8 @@ move them through a `PENDING → REACHED_OUT` workflow.
 
 **Attorney dashboard** (auth-gated)
 - All leads with search, sortable columns, and status filters
-- One-click **Mark reached out** (one-way state machine), with a re-application (duplicate-email) flag
+- One-click **Mark reached out** — reversible (undo back to pending) — with a re-application (duplicate-email) flag
+- **Soft delete** (archives a lead; the row and resume are retained, never hard-destroyed)
 - Lead detail with an **inline PDF preview**, private attorney notes, a status timeline, and resume download
 - **CSV export** of the current view
 - Account sign-up + sign-in (Better Auth) with brute-force protection
@@ -58,7 +59,7 @@ make demo    # (optional) load a realistic set of sample leads + resumes
 ## Testing
 
 ```bash
-make test            # backend (pytest, 31) + frontend (vitest, 20)
+make test            # backend (pytest, 35) + frontend (vitest, 20)
 ```
 
 ## Documentation

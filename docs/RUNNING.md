@@ -57,7 +57,7 @@ with it can provision attorney access.
 
 ## Running the tests
 ```bash
-make test            # backend (pytest, 31) + frontend (vitest, 20)
+make test            # backend (pytest, 35) + frontend (vitest, 20)
 make test-backend    # backend only
 make test-frontend   # frontend only
 ```

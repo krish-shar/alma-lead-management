@@ -40,10 +40,11 @@ These are explicit decisions, not assumptions left implicit:
 
 | Ambiguity | Decision | Rationale |
 |---|---|---|
-| What does "update a lead" mean? | The **one-way state transition** `PENDING → REACHED_OUT`, exposed as a real `PATCH /api/leads/{id}`. Re-marking an already-`REACHED_OUT` lead is an **idempotent `200` no-op** (handles double-clicks / two attorneys); the illegal `REACHED_OUT → PENDING` returns `409`. | The spec only requires the state change. We build a production-shaped `PATCH` without gold-plating a full CRUD editor (YAGNI), and make repeat calls safe. |
+| What does "update a lead" mean? | The **state transition** `PENDING → REACHED_OUT`, exposed as a real `PATCH /api/leads/{id}`. Re-marking the same state is an **idempotent `200` no-op** (handles double-clicks / two attorneys); `REACHED_OUT → PENDING` is supported as an **explicit undo** that clears `reached_out_at`. | The spec only requires the state change. We build a production-shaped `PATCH` without gold-plating a full CRUD editor (YAGNI), keep repeat calls safe, and make the one human action reversible. |
 | Who is "an attorney inside the company"? | A single **configured attorney email** (`ATTORNEY_EMAIL` env var) receives every new-lead notification. | The spec needs *a* notification target, not per-lead routing. Configurable, not hardcoded. |
 | What is the resume field? | A **file upload** (PDF / DOC / DOCX, **≤ 4 MB**), stored in object storage, downloadable from the dashboard via a short-lived pre-signed URL minted on demand. | Matches "resume / CV"; object storage keeps blobs out of the DB. 4 MB stays under any serverless body limit (see §5.2). |
-| Can a lead move backward? | **No.** One-way; illegal transitions → `409`. | The workflow is monotonic; enforced in the service layer. |
+| Can a lead move backward? | **Yes — as an explicit undo.** `REACHED_OUT → PENDING` is allowed and clears `reached_out_at`; the transition guard still lives in the service layer. | Originally modeled one-way, but a real attorney mis-clicks. A recoverable undo beats a dead end, and clearing the timestamp keeps the timeline honest. |
+| Should leads be deletable? | **Soft delete only.** `DELETE /api/leads/{id}` stamps `deleted_at` and hides the lead from every list/detail; the row and resume are **retained**. | An immigration firm must never hard-destroy applicant records. Soft delete is reversible and audit-friendly; the dashboard exposes it behind an inline confirm. |
 | Duplicate submissions (same email twice)? | **Allowed** — each submission is a distinct lead. No uniqueness constraint on `email`. | A prospect may legitimately re-apply; deduping is a product decision out of scope here. Called out so it is a conscious choice. |
 | Is a live hosted URL required? | **No.** The brief requires a repo, run-doc, design-doc, agent-usage doc, and a **Loom of the E2E workflow** — not a deployed URL. **Local Docker Compose E2E + Loom is canonical; cloud deploy is a stretch goal** (§11). | Removes the most failure-prone work (4-platform deploy, cold starts, free-tier email limits) from the critical path. |
 
@@ -133,9 +134,10 @@ code runs locally and (as a stretch) in the cloud — only environment variables
 | `state` | `enum('PENDING','REACHED_OUT')` | default `PENDING` |
 | `created_at` | `timestamptz` | default now |
 | `updated_at` | `timestamptz` | auto-updated |
-| `reached_out_at` | `timestamptz` | nullable; set on transition |
+| `reached_out_at` | `timestamptz` | nullable; set on transition, cleared on undo |
+| `deleted_at` | `timestamptz` | nullable; set by soft delete — non-null = hidden everywhere, row retained |
 
-Indexes: PK on `id`; index on `state` and `created_at` for dashboard sorting/filtering.
+Indexes: PK on `id`; index on `state`, `created_at` (dashboard sort/filter), and `deleted_at` (every listing excludes soft-deleted rows).
 
 ### 4.2 Auth tables (managed by Better Auth's CLI)
 `user`, `session`, `account`, `verification`, `jwks` — created by Better Auth's migration
@@ -159,13 +161,17 @@ command in the same database.
 | `GET` | `/api/leads` | ✅ JWT | `?state=&limit=&offset=` | `200` + `{items,total}` | `401` |
 | `GET` | `/api/leads/{id}` | ✅ JWT | — | `200` + lead | `401`, `404` |
 | `GET` | `/api/leads/{id}/resume` | ✅ JWT | — | `200` + `{url}` (fresh presigned) | `401`, `404` |
-| `PATCH` | `/api/leads/{id}` | ✅ JWT | `{ "state": "REACHED_OUT" }` | `200` + lead | `401`, `404`, `409` illegal |
+| `PATCH` | `/api/leads/{id}` | ✅ JWT | `{ "state"?: "REACHED_OUT" \| "PENDING", "notes"?: string }` | `200` + lead | `401`, `404` |
+| `DELETE` | `/api/leads/{id}` | ✅ JWT | — (soft delete) | `204` | `401`, `404` |
 | `GET` | `/api/health` | public | — | `200` `{status,db,storage}` | — |
 
 - **Layering:** routers do HTTP only; `LeadService` holds business rules (validation, the
   transition guard, email orchestration); `LeadRepository` does data access. Independently testable.
-- **`PATCH` semantics:** target state `REACHED_OUT` from `PENDING` → transition + set
-  `reached_out_at`; from `REACHED_OUT` → idempotent `200` no-op; `REACHED_OUT → PENDING` → `409`.
+- **`PATCH` semantics:** `PENDING → REACHED_OUT` sets `reached_out_at`; `REACHED_OUT → PENDING`
+  is an explicit undo that clears it; re-marking the same state is an idempotent `200` no-op.
+  `notes` can be patched in the same call (independent of `state`).
+- **`DELETE` semantics:** soft delete — stamps `deleted_at` (row + resume retained), returns `204`;
+  the lead then `404`s on detail and is excluded from every listing.
 - **OpenAPI** at `/docs` — the whole API is exercisable there.
 
 ### 5.1 Lead submission flow (`POST /api/leads`)
@@ -281,12 +287,13 @@ two values:
 ## 9. State Machine
 
 ```
-        ┌─────────┐   attorney PATCH {state: REACHED_OUT}   ┌──────────────┐
-        │ PENDING │ ──────────────────────────────────────▶ │ REACHED_OUT  │
-        └─────────┘                                          └──────────────┘
-            ▲                                                   │   │
-            └────────── REACHED_OUT → PENDING = 409 ────────────┘   │
-                        REACHED_OUT → REACHED_OUT = 200 (idempotent no-op)
+        ┌─────────┐   PATCH {state: REACHED_OUT}    ┌──────────────┐
+        │ PENDING │ ──────────────────────────────▶ │ REACHED_OUT  │
+        └─────────┘ ◀────────────────────────────── └──────────────┘
+                      PATCH {state: PENDING}  (undo — clears reached_out_at)
+
+   Re-marking the same state = 200 (idempotent no-op).
+   Either state can be soft-deleted: DELETE → deleted_at set → hidden everywhere, row retained.
 ```
 Transition validity lives in `LeadService.transition()` — unit-tested in isolation.
 
