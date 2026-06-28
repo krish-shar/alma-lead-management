@@ -176,11 +176,11 @@ export default function DashboardPage() {
             <div className="overflow-x-auto">
               <div className="min-w-[760px]">
                 <div className="grid grid-cols-[2.2fr_2.4fr_1.3fr_1.2fr_1.6fr] gap-4 border-b border-line bg-surface-2 px-[22px] py-[11px] text-[11.5px] font-bold uppercase tracking-[0.05em] text-muted-2">
-                  <SortHeader label="Applicant" active={sort.key === "name"} dir={sort.dir} onClick={() => toggleSort("name")} />
+                  <SortHeader label="Applicant" align="center" active={sort.key === "name"} dir={sort.dir} onClick={() => toggleSort("name")} />
                   <div className="flex items-center justify-center">Email</div>
                   <SortHeader label="Status" align="center" active={sort.key === "status"} dir={sort.dir} onClick={() => toggleSort("status")} />
                   <SortHeader label="Submitted" align="center" active={sort.key === "submitted"} dir={sort.dir} onClick={() => toggleSort("submitted")} />
-                  <div className="text-right">Actions</div>
+                  <div className="text-center">Actions</div>
                 </div>
                 {rows.map((lead) => (
                   <LeadRow
@@ -269,7 +269,7 @@ function LeadRow({
       }}
       className="grid cursor-pointer grid-cols-[2.2fr_2.4fr_1.3fr_1.2fr_1.6fr] items-center gap-4 border-b border-line-3 px-[22px] py-[15px] transition-colors hover:bg-surface-2"
     >
-      <div className="flex min-w-0 items-center gap-3">
+      <div className="flex min-w-0 items-center justify-center gap-3">
         <span className="inline-flex h-[34px] w-[34px] flex-none items-center justify-center rounded-full bg-accent-soft font-serif text-[13.5px] font-semibold text-accent-soft-ink">
           {initials(lead)}
         </span>
@@ -288,19 +288,21 @@ function LeadRow({
         <StatusBadge state={lead.state} />
       </div>
       <div className="text-center text-sm text-body-2">{fmtDate(lead.created_at)}</div>
-      <div className="flex items-center justify-end gap-[7px]">
-        {lead.state === "PENDING" && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onMarkReached();
-            }}
-            className="h-8 whitespace-nowrap rounded-lg border border-line-2 bg-white px-3 text-[13px] font-semibold text-ink transition-colors hover:border-accent hover:bg-accent-soft"
-          >
-            Mark reached out
-          </button>
-        )}
+      <div className="flex items-center justify-center gap-[7px]">
+        {/* Always rendered (invisible when already reached out) so the icon cluster keeps a
+            constant width and the download/chevron line up across every row. */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onMarkReached();
+          }}
+          tabIndex={lead.state === "PENDING" ? 0 : -1}
+          aria-hidden={lead.state !== "PENDING"}
+          className={`h-8 whitespace-nowrap rounded-lg border border-line-2 bg-white px-3 text-[13px] font-semibold text-ink transition-colors hover:border-accent hover:bg-accent-soft ${lead.state === "PENDING" ? "" : "invisible"}`}
+        >
+          Mark reached out
+        </button>
         <button
           type="button"
           onClick={(e) => {
