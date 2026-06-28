@@ -362,9 +362,11 @@ Because every dependency is env-driven (§2.1), deploy is config, not code chang
   sanitized** before use as storage keys.
 - Better Auth `trustedOrigins` + FastAPI CORS scoped to the frontend origin (+ `Authorization`).
 - Secrets only via env; `.env` git-ignored; `.env.example` documents required keys.
-- Public signup disabled; attorney accounts seeded/provisioned.
-- Deferred + documented (not silent): magic-byte content sniffing, virus scanning, public-form
-  rate limiting / captcha.
+- **Auth hardening:** Better Auth brute-force rate limiting (sign-in 5/min per IP → 429),
+  min password length 10, explicit 7-day session expiry (daily refresh). No public sign-up UI.
+- **Upload hardening:** per-IP rate limiting on the public form, magic-byte type sniffing
+  (rejects a renamed file), filename sanitization, size cap, bounded read.
+- Deferred + documented (not silent): virus scanning, captcha, MFA, invite-only sign-up.
 
 ---
 
@@ -372,8 +374,9 @@ Because every dependency is env-driven (§2.1), deploy is config, not code chang
 - **Email via BackgroundTasks**, not a durable queue — fine for this volume; queue + retries is the upgrade.
 - **Single attorney recipient** — a real system routes by practice area / round-robin.
 - **One-way state machine** — real CRMs have richer pipelines; minimal per spec.
-- **No rate limiting / captcha** on the public form — production needs throttling + spam control.
-- **No magic-byte / virus scanning** on uploads — a real intake flow would add both.
+- **Rate limiting is in-memory** (public form + auth) — fine for one instance; a multi-instance
+  deploy needs a shared store (Redis). Captcha + virus scanning still deferred.
+- **Magic-byte sniffing** is implemented; deep AV scanning of uploads is still deferred.
 - **Cloud deploy is stretch** — local Compose is canonical; hosted brings cold-start, pause, and
   verified-domain-email considerations (§11.2) that aren't worth the critical-path risk.
 

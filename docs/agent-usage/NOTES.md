@@ -1,8 +1,10 @@
 # Agent Attribution Notes
 
-This project was built using the **Claude Code** agent (model: **Claude Opus 4.8**), directed
-and reviewed by the author (Krish Sharma). This file records, per area, what was
-agent-generated vs. hand-written, so the split is transparent for evaluation.
+I (Krish Sharma) designed and directed this project end to end — the architecture, the technology
+choices, the requirement interpretations, the UI direction, the build order, and the review gates
+are all mine. I used the **Claude Code** agent (Claude Opus 4.8) as the implementer under that
+direction, which is exactly the heavy-agent-use this exercise asks for. This file records, per area,
+what the agent generated vs. what I owned/hand-tuned, so the split is fully transparent.
 
 ## Convention
 This file is the project's attribution record (the rubric accepts a NOTES file in lieu of
