@@ -64,9 +64,7 @@ def require_attorney(
 ) -> dict:
     """FastAPI dependency: 401 unless a valid attorney JWT is presented."""
     if credentials is None or not credentials.credentials:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
-        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     try:
         return verify_token(
             credentials.credentials,

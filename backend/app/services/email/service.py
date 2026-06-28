@@ -39,9 +39,7 @@ def send_new_lead_notifications(
 
     messages = [
         build_prospect_email(first_name, email),
-        build_attorney_email(
-            first_name, last_name, email, settings.attorney_email, dashboard_url
-        ),
+        build_attorney_email(first_name, last_name, email, settings.attorney_email, dashboard_url),
     ]
     for message in messages:
         try:

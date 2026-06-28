@@ -26,7 +26,9 @@ def test_validate_empty():
 
 
 def test_validate_too_large():
-    assert validate_resume("cv.pdf", "application/pdf", MAX + 1, MAX).reason == ResumeError.TOO_LARGE
+    assert (
+        validate_resume("cv.pdf", "application/pdf", MAX + 1, MAX).reason == ResumeError.TOO_LARGE
+    )
 
 
 def test_validate_bad_extension():
@@ -34,9 +36,7 @@ def test_validate_bad_extension():
 
 
 def test_validate_bad_content_type():
-    assert (
-        validate_resume("cv.pdf", "application/x-evil", 10, MAX).reason == ResumeError.BAD_TYPE
-    )
+    assert validate_resume("cv.pdf", "application/x-evil", 10, MAX).reason == ResumeError.BAD_TYPE
 
 
 def test_sniff_accepts_real_signatures():

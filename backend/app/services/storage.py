@@ -61,9 +61,7 @@ class StorageClient:
 
     def upload(self, key: str, data: bytes, content_type: str) -> None:
         """Store an object via the internal endpoint (backend↔storage traffic)."""
-        self._internal.put_object(
-            Bucket=self.bucket, Key=key, Body=data, ContentType=content_type
-        )
+        self._internal.put_object(Bucket=self.bucket, Key=key, Body=data, ContentType=content_type)
 
     def presigned_get_url(
         self,
@@ -99,6 +97,14 @@ class StorageClient:
     def delete(self, key: str) -> None:
         """Remove an object (used for compensating cleanup on a failed DB commit)."""
         self._internal.delete_object(Bucket=self.bucket, Key=key)
+
+    def delete_prefix(self, prefix: str) -> int:
+        """Delete every object under a key prefix. Returns the number deleted (used by seed)."""
+        listed = self._internal.list_objects_v2(Bucket=self.bucket, Prefix=prefix)
+        keys = [obj["Key"] for obj in listed.get("Contents", [])]
+        for key in keys:
+            self._internal.delete_object(Bucket=self.bucket, Key=key)
+        return len(keys)
 
 
 def get_storage() -> StorageClient:

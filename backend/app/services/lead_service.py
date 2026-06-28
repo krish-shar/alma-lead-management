@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
@@ -114,7 +114,7 @@ class LeadService:
 
         if lead.state == LeadState.PENDING and target == LeadState.REACHED_OUT:
             lead.state = LeadState.REACHED_OUT
-            lead.reached_out_at = datetime.now(timezone.utc)
+            lead.reached_out_at = datetime.now(UTC)
             self.db.commit()
             self.db.refresh(lead)
             return lead
