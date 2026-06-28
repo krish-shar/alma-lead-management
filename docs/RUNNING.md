@@ -58,6 +58,12 @@ make test-backend    # backend only
 make test-frontend   # frontend only
 ```
 
+## Load realistic demo data (optional)
+```bash
+make demo        # reset to 8 realistic leads with real resumes (mixed states, notes,
+                 # a re-application) and clear the Mailpit inbox
+```
+
 ## Useful commands
 ```bash
 make logs        # tail logs from all services

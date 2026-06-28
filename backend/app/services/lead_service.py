@@ -77,12 +77,20 @@ class LeadService:
 
     def resume_download_url(self, lead_id: uuid.UUID, *, inline: bool = False) -> str:
         lead = self.get_lead(lead_id)
+        # Stored-XSS guard: only ever serve a genuine PDF inline, and FORCE the served
+        # content-type to application/pdf rather than echoing the (upload-influenced) stored
+        # type — so a non-PDF can never be rendered inline as HTML/SVG in the attorney's browser.
+        is_pdf = (
+            lead.resume_content_type == "application/pdf"
+            or lead.resume_filename.lower().endswith(".pdf")
+        )
+        serve_inline = inline and is_pdf
         return self.storage.presigned_get_url(
             lead.resume_key,
             lead.resume_filename,
             settings.resume_url_ttl_seconds,
-            content_type=lead.resume_content_type,
-            inline=inline,
+            content_type="application/pdf" if serve_inline else lead.resume_content_type,
+            inline=serve_inline,
         )
 
     def update_notes(self, lead_id: uuid.UUID, notes: str) -> Lead:
