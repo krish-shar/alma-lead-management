@@ -18,8 +18,8 @@ export const auth = betterAuth({
     enabled: true,
     minPasswordLength: 10,
     maxPasswordLength: 128,
-    // Internal tool: there is no public sign-up UI; attorneys are provisioned via the
-    // seed script. (A production deploy would set disableSignUp + an invite flow + MFA.)
+    // Staff can self-provision via /signup. Open for local/demo use; a production deploy
+    // would gate this (invite-only / admin-created accounts) and add MFA.
   },
   // Session lifetime: 7-day expiry, refreshed daily on activity.
   session: {

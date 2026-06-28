@@ -9,7 +9,7 @@ export const authClient = createAuthClient({
   plugins: [jwtClient()],
 });
 
-export const { signIn, signOut, useSession } = authClient;
+export const { signIn, signUp, signOut, useSession } = authClient;
 
 /** Fetch a fresh EdDSA JWT for authenticating requests to the FastAPI backend. */
 export async function getAccessToken(): Promise<string | null> {
