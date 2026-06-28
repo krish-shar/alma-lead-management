@@ -178,8 +178,8 @@ export default function DashboardPage() {
                 <div className="grid grid-cols-[2.2fr_2.4fr_1.3fr_1.2fr_1.6fr] gap-4 border-b border-line bg-surface-2 px-[22px] py-[11px] text-[11.5px] font-bold uppercase tracking-[0.05em] text-muted-2">
                   <SortHeader label="Applicant" active={sort.key === "name"} dir={sort.dir} onClick={() => toggleSort("name")} />
                   <div className="flex items-center">Email</div>
-                  <SortHeader label="Status" active={sort.key === "status"} dir={sort.dir} onClick={() => toggleSort("status")} />
-                  <SortHeader label="Submitted" active={sort.key === "submitted"} dir={sort.dir} onClick={() => toggleSort("submitted")} />
+                  <SortHeader label="Status" align="center" active={sort.key === "status"} dir={sort.dir} onClick={() => toggleSort("status")} />
+                  <SortHeader label="Submitted" align="center" active={sort.key === "submitted"} dir={sort.dir} onClick={() => toggleSort("submitted")} />
                   <div className="text-right">Actions</div>
                 </div>
                 {rows.map((lead) => (
@@ -216,11 +216,23 @@ function FilterTab({ label, count, active, onClick }: { label: string; count: nu
   );
 }
 
-function SortHeader({ label, active, dir, onClick }: { label: string; active: boolean; dir: "asc" | "desc"; onClick: () => void }) {
+function SortHeader({
+  label,
+  active,
+  dir,
+  onClick,
+  align = "left",
+}: {
+  label: string;
+  active: boolean;
+  dir: "asc" | "desc";
+  onClick: () => void;
+  align?: "left" | "center";
+}) {
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-1 text-left uppercase tracking-[0.05em] transition-colors hover:text-ink-2 ${active ? "text-ink-2" : ""}`}
+      className={`flex items-center gap-1 uppercase tracking-[0.05em] transition-colors hover:text-ink-2 ${align === "center" ? "justify-center" : "text-left"} ${active ? "text-ink-2" : ""}`}
       aria-label={`Sort by ${label}`}
     >
       {label}
@@ -272,10 +284,10 @@ function LeadRow({
         </div>
       </div>
       <div className="truncate text-sm text-body-2">{lead.email}</div>
-      <div>
+      <div className="flex justify-center">
         <StatusBadge state={lead.state} />
       </div>
-      <div className="text-sm text-body-2">{fmtDate(lead.created_at)}</div>
+      <div className="text-center text-sm text-body-2">{fmtDate(lead.created_at)}</div>
       <div className="flex items-center justify-end gap-[7px]">
         {lead.state === "PENDING" && (
           <button
