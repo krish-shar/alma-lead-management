@@ -50,6 +50,33 @@ class StorageClient:
         except ClientError:
             self._internal.create_bucket(Bucket=self.bucket)
 
+    def upload(self, key: str, data: bytes, content_type: str) -> None:
+        """Store an object via the internal endpoint (backend↔storage traffic)."""
+        self._internal.put_object(
+            Bucket=self.bucket, Key=key, Body=data, ContentType=content_type
+        )
+
+    def presigned_get_url(self, key: str, filename: str, expires_in: int) -> str:
+        """Generate a time-limited download URL.
+
+        Signed with the PUBLIC endpoint, because the signature is bound to the host and the
+        browser cannot resolve the internal Docker hostname (DESIGN.md 8.1). The
+        Content-Disposition override restores the prospect's original filename on download.
+        """
+        return self._public.generate_presigned_url(
+            "get_object",
+            Params={
+                "Bucket": self.bucket,
+                "Key": key,
+                "ResponseContentDisposition": f'attachment; filename="{filename}"',
+            },
+            ExpiresIn=expires_in,
+        )
+
+    def delete(self, key: str) -> None:
+        """Remove an object (used for compensating cleanup on a failed DB commit)."""
+        self._internal.delete_object(Bucket=self.bucket, Key=key)
+
 
 def get_storage() -> StorageClient:
     return StorageClient()

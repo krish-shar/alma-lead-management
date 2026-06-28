@@ -27,9 +27,12 @@ ps: ## Show service status
 health: ## Curl the backend health endpoint
 	curl -s http://localhost:8000/api/health | python3 -m json.tool
 
-# `seed` grows per phase: Phase 0 = create the storage bucket. Phases 1-2 add
-# Alembic migrations, Better Auth migrations, and the attorney account.
-seed: ## Bootstrap storage bucket (extended in later phases)
+migrate: ## Run database migrations (Alembic)
+	docker compose exec -T backend alembic upgrade head
+
+# `seed` runs migrations + creates the storage bucket. Phase 2 adds the attorney account.
+seed: ## Run migrations + bootstrap storage bucket (extended in later phases)
+	docker compose exec -T backend alembic upgrade head
 	docker compose exec -T backend python -c "from app.services.storage import get_storage; get_storage().ensure_bucket(); print('storage bucket ready')"
 
 test: ## Run the backend test suite inside the container
