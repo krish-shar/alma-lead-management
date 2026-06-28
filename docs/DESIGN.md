@@ -6,6 +6,14 @@
 **Author:** Krish Sharma · **Date:** 2026-06-28
 **Stack:** FastAPI · Next.js · PostgreSQL · Better Auth · S3-compatible storage · Resend/SMTP
 
+> **Revision note (v2):** This design was stress-tested by an adversarial planning pass
+> (independent "Planner" + "Devil's Advocate" review) before implementation. v2 incorporates
+> their findings: cloud hosting is demoted to a **stretch goal** (local Docker Compose +
+> Loom is the canonical, graded deliverable); the Better Auth↔FastAPI JWKS path is pinned to
+> verified specifics; and two container-vs-browser URL footguns (JWKS fetch URL, S3 presigned
+> host) plus the Resend free-tier email constraint are designed around explicitly. See §17 for
+> the review log.
+
 ---
 
 ## 1. Problem & Requirements
@@ -32,10 +40,12 @@ These are explicit decisions, not assumptions left implicit:
 
 | Ambiguity | Decision | Rationale |
 |---|---|---|
-| What does "update a lead" mean? | The **one-way state transition** `PENDING → REACHED_OUT`, exposed as a real `PATCH /api/leads/{id}`. | The spec only requires the state change. We build a production-shaped `PATCH` endpoint (validated, idempotent-aware) without gold-plating a full CRUD editor nobody asked for (YAGNI). |
-| Who is "an attorney inside the company"? | A single **configured attorney email** (`ATTORNEY_EMAIL` env var) receives every new-lead notification. | The spec needs *a* notification target, not per-lead attorney routing. Kept configurable, not hardcoded. |
-| What is the resume field? | A **file upload** (PDF / DOC / DOCX, size-capped), stored in object storage, downloadable from the dashboard via a pre-signed URL. | Matches "resume / CV" and real hiring/intake flows; object storage keeps large blobs out of the DB. |
-| Can a lead move backward (`REACHED_OUT → PENDING`)? | **No.** The transition is one-way; an illegal transition returns `409 Conflict`. | The described workflow is monotonic. Enforcing it in the service layer prevents data corruption. |
+| What does "update a lead" mean? | The **one-way state transition** `PENDING → REACHED_OUT`, exposed as a real `PATCH /api/leads/{id}`. Re-marking an already-`REACHED_OUT` lead is an **idempotent `200` no-op** (handles double-clicks / two attorneys); the illegal `REACHED_OUT → PENDING` returns `409`. | The spec only requires the state change. We build a production-shaped `PATCH` without gold-plating a full CRUD editor (YAGNI), and make repeat calls safe. |
+| Who is "an attorney inside the company"? | A single **configured attorney email** (`ATTORNEY_EMAIL` env var) receives every new-lead notification. | The spec needs *a* notification target, not per-lead routing. Configurable, not hardcoded. |
+| What is the resume field? | A **file upload** (PDF / DOC / DOCX, **≤ 4 MB**), stored in object storage, downloadable from the dashboard via a short-lived pre-signed URL minted on demand. | Matches "resume / CV"; object storage keeps blobs out of the DB. 4 MB stays under any serverless body limit (see §5.2). |
+| Can a lead move backward? | **No.** One-way; illegal transitions → `409`. | The workflow is monotonic; enforced in the service layer. |
+| Duplicate submissions (same email twice)? | **Allowed** — each submission is a distinct lead. No uniqueness constraint on `email`. | A prospect may legitimately re-apply; deduping is a product decision out of scope here. Called out so it is a conscious choice. |
+| Is a live hosted URL required? | **No.** The brief requires a repo, run-doc, design-doc, agent-usage doc, and a **Loom of the E2E workflow** — not a deployed URL. **Local Docker Compose E2E + Loom is canonical; cloud deploy is a stretch goal** (§11). | Removes the most failure-prone work (4-platform deploy, cold starts, free-tier email limits) from the critical path. |
 
 ---
 
@@ -47,22 +57,26 @@ These are explicit decisions, not assumptions left implicit:
    │ /apply       │                     │ /login → /dashboard          │
    │ lead form    │                     │ leads table · "Mark Reached  │
    │              │                     │ Out" · resume download       │
-   └──────┬───────┘                     └──────────────┬───────────────┘
-          │ multipart POST                             │ Bearer <JWT>
-          ▼                                            ▼
-   ┌──────────────────────────  Next.js  (Vercel)  ─────────────────────────┐
-   │  • Public form page (client validation + submit to API)                │
-   │  • Better Auth: email+password, session, JWT plugin, JWKS endpoint      │
-   │  • Protected dashboard (middleware + server session check)              │
-   └────────────────────────────────────┬───────────────────────────────────┘
-                                         │  Authorization: Bearer <JWT>
-                                         ▼
+   └──────┬───────┘                     └───────┬──────────────┬───────┘
+          │ multipart POST                      │ login/session │ Bearer <JWT>
+          │ (browser → FastAPI, CORS)           ▼              │ (browser → FastAPI)
+          │                          ┌──────────────────────┐  │
+          │                          │  Next.js (Vercel)     │  │
+          │                          │  • public form page   │  │
+          │                          │  • Better Auth:       │  │
+          │                          │    email+password,    │  │
+          │                          │    JWT plugin, JWKS    │  │
+          │                          │  • protected dashboard │  │
+          │                          └───────────┬───────────┘  │
+          │                              JWKS     │ (fetched by   │
+          │                              endpoint │  FastAPI)     │
+          ▼                                       ▼               ▼
    ┌───────────────────────────  FastAPI  (Render)  ────────────────────────┐
    │  api/ (routers) → services/ → repositories/                            │
    │  • core/security: verify JWT against Better Auth JWKS (cached)          │
    │  • LeadService: create · list · get · transition                       │
    │  • EmailClient: SMTP→Mailpit | Resend  (sent via BackgroundTasks)       │
-   │  • StorageClient: S3 API → MinIO | Supabase/R2  (pre-signed URLs)       │
+   │  • StorageClient: S3 API → MinIO | Supabase  (presigned URLs)           │
    └─────────┬──────────────────────┬───────────────────────┬───────────────┘
              ▼                       ▼                       ▼
         PostgreSQL              Object storage           Email service
@@ -70,23 +84,22 @@ These are explicit decisions, not assumptions left implicit:
     auth tables [Better Auth])
 ```
 
-**Two services, one database.** The Next.js app owns presentation + authentication;
-the FastAPI app owns business logic + persistence. They share one Postgres instance but
-own disjoint table sets (FastAPI/Alembic manages `leads`; Better Auth manages its own
-`user`/`session`/`account`/`jwks` tables). They communicate over HTTP with a verifiable JWT.
+**Both the public form POST and the dashboard's authenticated GET/PATCH go browser →
+FastAPI directly** (CORS-allowed), *not* proxied through Next.js. This keeps the API
+independently exercisable and avoids Vercel's ~4.5 MB serverless body limit on uploads.
+Next.js owns presentation + authentication (Better Auth); FastAPI owns business logic +
+persistence. They share one Postgres but own disjoint table sets.
 
 ### 2.1 The unifying principle: portable protocols
-Every external dependency is reached through a **standard, swappable protocol** so the
-exact same code runs locally and in the cloud — only environment variables differ:
+Every external dependency is reached through a **standard, swappable protocol** so the same
+code runs locally and (as a stretch) in the cloud — only environment variables differ:
 
-| Concern | Protocol | Local impl | Hosted (free) impl |
+| Concern | Protocol | Local impl (canonical) | Hosted (stretch) impl |
 |---|---|---|---|
 | Database | Postgres wire | Docker `postgres` | Supabase Postgres |
 | Object storage | **S3 API** (boto3) | Docker MinIO | Supabase Storage (S3 endpoint) |
-| Email | **SMTP** / Resend HTTP | Docker Mailpit | Resend |
-| Auth keys | **JWKS** (JSON Web Key Set) | Better Auth dev server | Better Auth on Vercel |
-
-This is why "deploy for free later" is a configuration task, not a refactor.
+| Email | **SMTP** / Resend HTTP | Docker **Mailpit** | Resend (verified domain) |
+| Auth keys | **JWKS** | Better Auth in Compose | Better Auth on Vercel |
 
 ---
 
@@ -94,14 +107,14 @@ This is why "deploy for free later" is a configuration task, not a refactor.
 
 | Choice | Why | Alternatives considered |
 |---|---|---|
-| **FastAPI** | Required. Async, first-class Pydantic validation, OpenAPI docs for free, clean dependency-injection for auth. | (mandated) |
-| **Next.js (App Router)** | Required. Server components for auth-gated pages, middleware for route protection, native Vercel deploy. | (mandated) |
-| **PostgreSQL** | Production-representative relational store; strong consistency for the state machine; free serverless tiers (Supabase/Neon). | SQLite (not production-shaped), MySQL (no advantage here). |
-| **SQLAlchemy 2.0 + Alembic** | Typed ORM + first-class migrations = reproducible schema, the production norm. | Raw SQL (more error-prone), Tortoise/SQLModel (smaller ecosystems). |
-| **Better Auth** | Modern, TypeScript-native auth that lives with the frontend; email+password + a **JWT plugin** that lets a separate backend verify identity via JWKS. | NextAuth/Auth.js (heavier session wiring to a non-Node API), hand-rolled JWT (reinventing session/user management). |
-| **S3 API via boto3 (MinIO/Supabase)** | Object storage is the right home for resumes; the S3 API is universal, so local MinIO and hosted Supabase Storage are interchangeable. Pre-signed URLs keep the backend out of the file-download path. | DB blobs (bloats DB, bad for large files), local disk (not cloud-portable). |
-| **Resend + SMTP (Mailpit)** | Resend = trivial real email on a free tier; Mailpit = a zero-config local inbox for testing with a visible UI (great for the demo). A single `EmailClient` interface swaps between them. | SendGrid/SES (more setup), console-only (nothing to show in the demo). |
-| **Docker Compose** | One command (`docker compose up`) brings up Postgres + MinIO + Mailpit + both apps — the cleanest "run locally" story. | Manual per-service startup (more steps, more "works on my machine"). |
+| **FastAPI** | Required. Async, Pydantic validation, free OpenAPI docs, clean DI for auth. | (mandated) |
+| **Next.js (App Router)** | Required. Middleware route protection, native Vercel deploy. | (mandated) |
+| **PostgreSQL** | Production-representative; strong consistency for the state machine; free tiers. | SQLite (not production-shaped). |
+| **SQLAlchemy 2.0 + Alembic** | Typed ORM + first-class migrations = reproducible schema. | Raw SQL (error-prone). |
+| **Better Auth** | Modern TS-native auth with an **email+password** flow and a **JWT plugin** exposing **JWKS**, so a separate Python backend can verify identity asymmetrically. | NextAuth (heavier wiring to a non-Node API), hand-rolled JWT (reinvents user/session mgmt). |
+| **S3 API via boto3 (MinIO/Supabase)** | Right home for resumes; universal S3 protocol → local MinIO and hosted Supabase interchangeable; presigned URLs keep file bytes out of the backend. | DB blobs, local disk (not portable). |
+| **Resend + SMTP (Mailpit)** | Mailpit = zero-config local inbox that emails **any** address (perfect for the canonical "both emails" demo); Resend = real hosted delivery via a verified domain. One `EmailClient` interface swaps them. | SendGrid/SES (more setup), console-only (nothing to show). |
+| **Docker Compose** | One command brings up Postgres + MinIO + Mailpit + both apps — the canonical "run locally" + Loom story. | Manual per-service startup. |
 
 ---
 
@@ -114,8 +127,8 @@ This is why "deploy for free later" is a configuration task, not a refactor.
 | `first_name` | `text` | required, trimmed, non-empty |
 | `last_name` | `text` | required, trimmed, non-empty |
 | `email` | `text` | required, validated (Pydantic `EmailStr`) |
-| `resume_key` | `text` | S3 object key, e.g. `resumes/{id}/{filename}` |
-| `resume_filename` | `text` | original filename (for download) |
+| `resume_key` | `text` | S3 object key: `resumes/{id}/{sanitized_filename}` |
+| `resume_filename` | `text` | **original** filename, preserved for `Content-Disposition` on download |
 | `resume_content_type` | `text` | e.g. `application/pdf` |
 | `state` | `enum('PENDING','REACHED_OUT')` | default `PENDING` |
 | `created_at` | `timestamptz` | default now |
@@ -126,8 +139,15 @@ Indexes: PK on `id`; index on `state` and `created_at` for dashboard sorting/fil
 
 ### 4.2 Auth tables (managed by Better Auth's CLI)
 `user`, `session`, `account`, `verification`, `jwks` — created by Better Auth's migration
-command in the same database. We **do not** hand-edit these; the separation of ownership
-(Alembic vs Better Auth) is intentional and documented in `RUNNING.md`.
+command in the same database.
+- **Alembic must not touch them.** `alembic revision --autogenerate` compares models to the
+  live DB and would emit `drop_table` for any table it doesn't own. We add an
+  **`include_object` / `include_name` filter** in `alembic/env.py` scoping autogenerate to the
+  `leads` table only. (The two systems otherwise coexist cleanly — disjoint tables, no
+  cross-FKs, same `DATABASE_URL`; the filter just protects the autogenerate workflow.)
+- **Seeding the attorney:** Better Auth hashes passwords with **scrypt** (its own scheme), so
+  the seed **cannot** raw-`INSERT` a user row. The seed script calls Better Auth's
+  **sign-up / admin API** to create `attorney@alma.test`, then public signup is disabled.
 
 ---
 
@@ -135,55 +155,75 @@ command in the same database. We **do not** hand-edit these; the separation of o
 
 | Method | Path | Auth | Body / Params | Success | Errors |
 |---|---|---|---|---|---|
-| `POST` | `/api/leads` | public | `multipart`: `first_name`, `last_name`, `email`, `resume` (file) | `201` + lead | `422` validation; `413` file too large; `415` bad type |
+| `POST` | `/api/leads` | public | `multipart`: `first_name`, `last_name`, `email`, `resume` (file) | `201` + lead | `422` validation; `413` too large; `415` bad type |
 | `GET` | `/api/leads` | ✅ JWT | `?state=&limit=&offset=` | `200` + `{items,total}` | `401` |
 | `GET` | `/api/leads/{id}` | ✅ JWT | — | `200` + lead | `401`, `404` |
-| `GET` | `/api/leads/{id}/resume` | ✅ JWT | — | `200` + `{url}` (pre-signed) | `401`, `404` |
-| `PATCH` | `/api/leads/{id}` | ✅ JWT | `{ "state": "REACHED_OUT" }` | `200` + lead | `401`, `404`, `409` illegal transition |
+| `GET` | `/api/leads/{id}/resume` | ✅ JWT | — | `200` + `{url}` (fresh presigned) | `401`, `404` |
+| `PATCH` | `/api/leads/{id}` | ✅ JWT | `{ "state": "REACHED_OUT" }` | `200` + lead | `401`, `404`, `409` illegal |
 | `GET` | `/api/health` | public | — | `200` `{status,db,storage}` | — |
 
-- **Layering:** routers do HTTP concerns only; `LeadService` holds business rules
-  (validation, state-transition guard, email orchestration); `LeadRepository` does data
-  access. This keeps each unit independently testable.
-- **Validation:** Pydantic schemas validate inputs; resume type/size checked before upload.
-- **OpenAPI:** auto-generated at `/docs` — a reviewer can exercise the whole API there.
+- **Layering:** routers do HTTP only; `LeadService` holds business rules (validation, the
+  transition guard, email orchestration); `LeadRepository` does data access. Independently testable.
+- **`PATCH` semantics:** target state `REACHED_OUT` from `PENDING` → transition + set
+  `reached_out_at`; from `REACHED_OUT` → idempotent `200` no-op; `REACHED_OUT → PENDING` → `409`.
+- **OpenAPI** at `/docs` — the whole API is exercisable there.
 
 ### 5.1 Lead submission flow (`POST /api/leads`)
-1. Validate fields + resume (type/size).
-2. Upload resume to object storage (`resumes/{lead_id}/{filename}`).
+1. Validate fields + resume (type/size). **Sanitize the filename** (strip paths/control chars,
+   bound length) before using it in the object key; keep the original for download metadata.
+2. Upload resume to object storage (`resumes/{lead_id}/{sanitized}`).
 3. Persist the lead row as `PENDING` (**source of truth committed first**).
+   - **Orphan safety:** if the DB commit fails after upload, best-effort delete the uploaded
+     object (compensating cleanup); any residual orphan is logged. Documented trade-off, not silent.
 4. Enqueue two emails via `BackgroundTasks` (prospect confirmation + attorney notification).
 5. Return `201` immediately — the prospect never waits on email I/O.
 
-**Reliability stance:** email is best-effort and **non-blocking**. The lead is saved even
-if email later fails; failures are logged. A high-volume production system would replace
-`BackgroundTasks` with a durable queue (Celery/RQ/SQS) and retry with backoff — called out
-as a deliberate, scoped trade-off rather than an oversight.
+**Reliability stance:** email is best-effort and **non-blocking**; the lead is saved even if
+email later fails (failures logged). A high-volume system swaps `BackgroundTasks` for a durable
+queue (Celery/RQ/SQS) with retry/backoff — a deliberate, scoped trade-off.
+
+### 5.2 Upload routing & limits
+The public form posts multipart **directly to FastAPI** (CORS-allowed origin). This avoids
+proxying large bodies through a Next.js route handler on Vercel (~4.5 MB serverless cap); the
+**4 MB resume limit** stays safely under any such ceiling and is enforced server-side.
 
 ---
 
 ## 6. Authentication Design
 
-**Better Auth (Next.js) issues identity; FastAPI verifies it.**
+**Better Auth (Next.js) issues identity; FastAPI verifies it asymmetrically via JWKS.**
+All specifics below are verified against current Better Auth + PyJWT docs.
 
-```
-1. Attorney logs in at /login  → Better Auth validates email+password,
-   creates a session, and (JWT plugin) can mint a signed JWT.
-2. Better Auth exposes a JWKS endpoint: GET /api/auth/jwks (public keys).
-3. The dashboard attaches Authorization: Bearer <JWT> to FastAPI calls.
-4. FastAPI (core/security.py) fetches + caches the JWKS, verifies the JWT's
-   signature, issuer, audience, and expiry, and resolves the attorney identity.
-   Protected routes depend on this via FastAPI's Depends().
-```
+### 6.1 Token mechanics (pinned)
+- **Algorithm: EdDSA (Ed25519)** — Better Auth's default. **Do not switch** to RS256/ES256
+  (known JWKS-generation bugs on non-default algorithms).
+- **JWKS endpoint:** `GET /api/auth/jwks`. JWT header carries `kid` for key selection.
+- **Claims:** `iss` and `aud` both default to **`BETTER_AUTH_URL`** (the *browser-facing*
+  Next.js origin); `exp` = **15 minutes**; `sub` = user id.
+- **FastAPI verification:** **PyJWT + `cryptography`** (required for EdDSA). `PyJWKClient`
+  fetches/caches the JWKS; `jwt.decode(token, key, algorithms=["EdDSA"], issuer=..., audience=...)`
+  checks signature + `iss` + `aud` + `exp` in one call. Protected routes depend on this via `Depends()`.
 
-Why JWKS over a shared secret: the **API is independently secured and directly callable**
-(demonstrable via `/docs` or curl in the Loom), keys can rotate without redeploying the
-backend, and no symmetric secret is shared between two services. This is the standard
-OAuth-style asymmetric bearer pattern.
+### 6.2 Two URL contexts (the footgun, designed around)
+In Docker, FastAPI fetches JWKS over the **internal** network, but the token's `iss`/`aud`
+is the **browser** origin. These are **two distinct config values**, never conflated:
+- `JWT_JWKS_URL` — where FastAPI *fetches* keys, e.g. `http://frontend:3000/api/auth/jwks` (Docker) / the Vercel URL (hosted).
+- `JWT_ISSUER` / `JWT_AUDIENCE` — what FastAPI *expects in the token*, e.g. `http://localhost:3000` (browser) / the public Vercel URL (hosted).
 
-- **Seeding:** a script seeds one attorney account (`attorney@alma.test`) so the dashboard
-  is usable immediately; public signup is disabled (internal tool).
-- **Token lifetime:** short-lived JWTs; the browser refreshes via the Better Auth session.
+All three are **injectable config** (not hardcoded) so auth is unit-testable against a local
+test JWKS (§12).
+
+### 6.3 Obtaining the bearer token (the other under-specified bit)
+The JWT is **not** the session cookie — it is fetched separately while authenticated. The
+**dashboard is a client component** that calls **`authClient.token()`** (documented; also
+available as `GET /api/auth/token` or the `set-auth-jwt` response header) to get a fresh JWT,
+attaches `Authorization: Bearer <jwt>` to FastAPI calls, and **re-fetches on a `401`** (covers
+the 15-min expiry). Route access is still gated by Next.js middleware (session check).
+
+### 6.4 Cross-origin
+Better Auth `trustedOrigins` includes the frontend origin; FastAPI `CORSMiddleware` allows the
+frontend origin **and the `Authorization` header** (the authenticated GET/PATCH are preflighted).
+Public signup disabled; attorney provisioned via seed (§4.2).
 
 ---
 
@@ -193,17 +233,21 @@ A single interface, two backends, selected by env:
 
 ```
 EmailClient (protocol)
- ├─ SMTPEmailClient   → Mailpit (local, visible inbox at :8025) — no API keys
- └─ ResendEmailClient → Resend HTTP API (hosted real delivery)
+ ├─ SMTPEmailClient   → Mailpit (local, visible inbox :8025) — emails ANY address, no keys
+ └─ ResendEmailClient → Resend HTTP API (hosted real delivery, verified domain)
 
-EMAIL_PROVIDER=smtp|resend   # chooses the implementation at startup
+EMAIL_PROVIDER=smtp|resend
 ```
 
-- **Two templates:** prospect confirmation ("we received your application") and attorney
-  notification ("new lead: {name}, {email}, resume attached/linked").
-- **Testability:** a `FakeEmailClient` captures sent messages in tests — no network, fast,
-  asserts on recipients/subjects/bodies.
-- **Local demo:** Mailpit's web UI shows both emails arriving on submit — ideal for the Loom.
+- **Two templates:** prospect confirmation; attorney notification. The attorney email **links
+  to the auth-gated dashboard lead detail** (which mints a fresh presigned URL on demand) —
+  **not** an embedded presigned URL, which would expire into a dead link.
+- **Canonical demo = Mailpit:** it delivers to both the prospect's and the attorney's addresses
+  regardless of domain, so the Loom visibly shows the core "email both" requirement working.
+- **Resend free-tier caveat (hosted):** without a **verified domain**, Resend only sends to the
+  account owner's address. The author **has a domain**, so a hosted deploy can verify it and send
+  real mail to anyone; until then, Mailpit is the source of truth for the demo.
+- **Testability:** a `FakeEmailClient` captures messages in tests (recipients/subject/body), no network.
 
 ---
 
@@ -212,14 +256,24 @@ EMAIL_PROVIDER=smtp|resend   # chooses the implementation at startup
 ```
 StorageClient (protocol)
  └─ S3StorageClient (boto3)  → MinIO (local) | Supabase Storage (hosted)
-
-S3_ENDPOINT_URL, S3_BUCKET, S3_ACCESS_KEY, S3_SECRET_KEY, S3_REGION
 ```
 
-- Resumes are uploaded under `resumes/{lead_id}/{filename}`.
-- Downloads use **pre-signed URLs** (time-limited) so the backend never proxies file bytes
-  and files are never public.
-- File constraints enforced before upload: allowed types `pdf/doc/docx`, max size (e.g. 5 MB).
+### 8.1 Two endpoints (the second footgun, designed around)
+A presigned URL is cryptographically bound to the host it was signed with, so a backend that
+signs with its **internal** endpoint produces a URL the **browser cannot resolve**. We keep
+two values:
+- `S3_INTERNAL_ENDPOINT` — backend↔storage traffic (e.g. `http://minio:9000` in Docker).
+- `S3_PUBLIC_ENDPOINT` — used when **generating presigned URLs** the browser will open
+  (e.g. `http://localhost:9000` locally / the Supabase S3 host in prod).
+
+### 8.2 Other specifics
+- Keys: `resumes/{lead_id}/{sanitized_filename}`; download via short-lived presigned GET (TTL
+  noted in config, e.g. 5 min) minted **on demand** by `GET /api/leads/{id}/resume`.
+- File constraints enforced pre-upload: types `pdf/doc/docx`, ≤ 4 MB. (Declared content-type is
+  spoofable; magic-byte sniffing + virus scanning are deferred, production-noted, not silently skipped.)
+- **Hosted (Supabase) requires** SigV4 (`s3v4`), region matching the endpoint, and
+  **virtual-hosted addressing**; MinIO uses **path-style**. Addressing style is config
+  (`S3_ADDRESSING_STYLE`).
 
 ---
 
@@ -229,11 +283,11 @@ S3_ENDPOINT_URL, S3_BUCKET, S3_ACCESS_KEY, S3_SECRET_KEY, S3_REGION
         ┌─────────┐   attorney PATCH {state: REACHED_OUT}   ┌──────────────┐
         │ PENDING │ ──────────────────────────────────────▶ │ REACHED_OUT  │
         └─────────┘                                          └──────────────┘
-            ▲  │  illegal/back-transition → 409                     │
-            └──┘  (no transition out of REACHED_OUT)  ◀─────────────┘
+            ▲                                                   │   │
+            └────────── REACHED_OUT → PENDING = 409 ────────────┘   │
+                        REACHED_OUT → REACHED_OUT = 200 (idempotent no-op)
 ```
-Transition validity lives in `LeadService.transition()`, not in the router or the DB,
-so it is unit-tested in isolation and reused by any future caller.
+Transition validity lives in `LeadService.transition()` — unit-tested in isolation.
 
 ---
 
@@ -241,80 +295,131 @@ so it is unit-tested in isolation and reused by any future caller.
 
 | Route | Auth | Purpose |
 |---|---|---|
-| `/apply` (and `/`) | public | Lead form: validated fields + resume upload; success state on submit. |
+| `/apply` (and `/`) | public | Lead form: validated fields + resume upload; posts directly to FastAPI; success state. |
 | `/login` | public | Attorney email+password login (Better Auth). |
-| `/dashboard` | protected | Leads table: name, email, state badge, submitted date; **Mark Reached Out** action; **resume download**; filter by state. |
+| `/dashboard` | protected | **Client component**: leads table (name, email, state badge, date), **Mark Reached Out** (PATCH), **resume download**, filter by state. |
 
-- **Protection:** Next.js middleware + server-side session check redirect unauthenticated
-  users away from `/dashboard`.
-- **UX:** optimistic state badge update on "Mark Reached Out" with error rollback; clear
-  empty/loading/error states; accessible form labels and validation messages.
-- **Styling:** Tailwind, clean and legible — polished but not over-designed.
+- **Protection:** Next.js middleware redirects unauthenticated users from `/dashboard`; the
+  client component fetches a JWT via `authClient.token()` for its FastAPI calls (§6.3).
+- **UX:** "Mark Reached Out" → PATCH → **refetch** (simple, robust; no optimistic-rollback
+  complexity); clear empty/loading/error states; accessible labels + validation messages.
+- **Styling:** Tailwind — clean and legible, not over-designed.
 
 ---
 
 ## 11. Local Development & Deployment
 
-### 11.1 Local (one command)
+### 11.1 Local (canonical, one command)
 `docker compose up` starts: `postgres`, `minio`, `mailpit`, `backend` (FastAPI),
-`frontend` (Next.js). A `make seed` / script creates the storage bucket, runs Alembic +
-Better Auth migrations, and seeds the attorney. Full steps in `RUNNING.md`.
+`frontend` (Next.js). A `make seed` target: creates the MinIO bucket, runs **Alembic** +
+**Better Auth** migrations, and seeds the attorney **via Better Auth's API**. Full steps in
+`RUNNING.md`. **This is the graded deliverable and where the Loom is recorded.**
 
-### 11.2 Free hosting target
-| Component | Host | Free-tier note |
+### 11.2 Free hosting (stretch goal — only after core + docs + Loom are done)
+| Component | Host | Note |
 |---|---|---|
-| Frontend (Next.js) | **Vercel** | Native Next.js deploy |
-| Backend (FastAPI) | **Render** | Free web service |
-| Database | **Supabase Postgres** | No credit card on free tier |
-| Object storage | **Supabase Storage** | S3-compatible endpoint, same boto3 code |
-| Email | **Resend** | Free tier, real delivery |
+| Frontend (Next.js) | **Vercel** | native deploy |
+| Backend (FastAPI) | **Render** | free web service; **spins down after 15 min idle (~1 min cold start)** — pre-warm before any hosted demo |
+| Database | **Supabase Postgres** | no credit card; **free projects pause after ~7 days DB inactivity** |
+| Object storage | **Supabase Storage** | S3 endpoint; `s3v4` + region + virtual addressing (§8.2) |
+| Email | **Resend** | verify the author's **domain** to enable real delivery to any recipient |
 
-Consolidating DB + storage on Supabase minimizes accounts and avoids a credit card.
-Deployment specifics live in `DEPLOYMENT.md`.
+**Hosted migration step (required if deploying):** run Alembic + Better Auth migrations against
+Supabase (e.g. Render pre-deploy command) before first use. Detailed in `DEPLOYMENT.md`.
+Because every dependency is env-driven (§2.1), deploy is config, not code change.
 
 ---
 
 ## 12. Testing Strategy
 
-- **Backend (pytest):**
-  - *Unit:* state-transition guard, file-type/size validation, email template rendering,
-    `EmailClient`/`StorageClient` via fakes.
-  - *Integration:* API endpoints through an ASGI transport against a test Postgres
-    (transactional rollback per test), incl. auth-protected routes with a forged-but-valid
-    test JWT (test JWKS), and the full submit → store → email path with fakes.
-- **Frontend:** component tests for the form (validation) + at least one **Playwright E2E**
-  covering submit → email landed (Mailpit) → login → see lead → mark reached out.
-- **CI-ready:** tests runnable via `make test`; deterministic, no external network needed.
+**Minimum required (must pass):**
+- **Unit:** state-transition guard (incl. idempotent no-op + 409), file type/size validation,
+  email template rendering, `EmailClient`/`StorageClient` via fakes.
+- **Integration (one happy path):** `POST /api/leads` through an ASGI transport against a test
+  Postgres (transactional rollback per test) with `FakeEmail`/`FakeStorage` → asserts lead
+  persisted `PENDING` + both emails captured.
+- **Auth (one test):** mint a JWT with a **locally-generated Ed25519 keypair**, serve a **test
+  JWKS**, point the verifier's injectable JWKS-URL/issuer/audience at test values, assert a
+  protected route returns `200` with a valid token and `401` without. (Requires the §6.2
+  injectable config — designed in from the start.)
+
+**Optional (build only if time remains; first to cut):**
+- **Playwright E2E** happy-path (submit → email in Mailpit → login → see lead → mark reached
+  out). Note: email is sent via `BackgroundTasks`, so the Mailpit assertion must **poll/retry**
+  to avoid a race. *The Loom is the real E2E demo; Playwright is a bonus.*
+- A tiny MinIO presign integration test (catches the §8.1 host issue before the Loom does).
+
+`make test` runs the required suite; deterministic, no external network.
 
 ---
 
 ## 13. Security Considerations
-- Resumes are private; access only via short-lived pre-signed URLs behind auth.
-- JWTs verified asymmetrically (JWKS); issuer/audience/expiry checked; clock-skew tolerance.
-- Input validation on every public field; file type + size limits guard the upload path.
-- Secrets only via env vars; `.env` git-ignored; `.env.example` documents required keys.
-- CORS restricted to the known frontend origin.
-- Public signup disabled on the internal tool; attorney accounts are seeded/provisioned.
+- Resumes private; access only via short-lived presigned URLs minted behind auth.
+- JWTs verified asymmetrically (EdDSA/JWKS); `iss`/`aud`/`exp` checked; injectable config.
+- Input validation on every public field; file type + size limits guard uploads; **filenames
+  sanitized** before use as storage keys.
+- Better Auth `trustedOrigins` + FastAPI CORS scoped to the frontend origin (+ `Authorization`).
+- Secrets only via env; `.env` git-ignored; `.env.example` documents required keys.
+- Public signup disabled; attorney accounts seeded/provisioned.
+- Deferred + documented (not silent): magic-byte content sniffing, virus scanning, public-form
+  rate limiting / captcha.
 
 ---
 
 ## 14. Trade-offs & "with more time"
-- **Email via BackgroundTasks**, not a durable queue — fine for this volume; a queue
-  (Celery/SQS) with retries/backoff is the production upgrade.
+- **Email via BackgroundTasks**, not a durable queue — fine for this volume; queue + retries is the upgrade.
 - **Single attorney recipient** — a real system routes by practice area / round-robin.
-- **One-way state machine** — real CRMs have richer pipelines; kept minimal per the spec.
-- **No rate limiting on the public form** — production needs throttling + spam/captcha.
-- **Resume virus scanning** omitted — a real intake flow would scan uploads.
+- **One-way state machine** — real CRMs have richer pipelines; minimal per spec.
+- **No rate limiting / captcha** on the public form — production needs throttling + spam control.
+- **No magic-byte / virus scanning** on uploads — a real intake flow would add both.
+- **Cloud deploy is stretch** — local Compose is canonical; hosted brings cold-start, pause, and
+  verified-domain-email considerations (§11.2) that aren't worth the critical-path risk.
 
 ---
 
 ## 15. Coding-Agent Usage (rubric)
-This project is built primarily with the **Claude Code** agent (model: Claude Opus 4.8),
-directed and reviewed by the author. Attribution is continuous:
+Built primarily with the **Claude Code** agent (Claude Opus 4.8), directed and reviewed by the
+author. Attribution is continuous (wired up **from the first commit**, not reconstructed later):
 - Commits carry `Co-Authored-By` trailers for agent-generated work.
 - `docs/agent-usage/NOTES.md` marks agent-generated vs hand-tuned files.
-- `docs/agent-usage/prompt-logs/` holds representative prompts/transcript excerpts.
-- `docs/agent-usage/WRITEUP.md` (≤ ½ page) covers tools used, delegate-vs-write split, and
-  **a real instance where the agent produced subtly wrong code — caught and fixed** (captured
-  authentically during the review passes, not invented).
+- `docs/agent-usage/prompt-logs/` holds representative prompts/transcript excerpts (incl. this
+  adversarial review).
+- `docs/agent-usage/WRITEUP.md` (≤ ½ page): tools used, delegate-vs-write split, and **a real
+  instance where the agent produced subtly wrong code — caught and fixed** (captured
+  authentically during review, not invented).
+
+---
+
+## 16. Submission Checklist
+| Artifact | Status target |
+|---|---|
+| Public GitHub repo | required |
+| `RUNNING.md` (run locally) | required |
+| `DESIGN.md` (this doc) | required |
+| Agent-usage: `WRITEUP.md` + `prompt-logs/` + commit attribution | required |
+| **Loom of E2E workflow** (recorded on local Compose) | required |
+| Link uploaded within **6h** of start | required |
+| `DEPLOYMENT.md` + live URL | **stretch** |
+
+---
+
+## 17. Build Order (de-risked — auth handshake first)
+Front-loads both risk axes so a demoable artifact exists early and the riskiest integration is
+proven at hour ~1, not discovered at hour ~5.
+
+- **Phase 0 — Scaffold + Compose (~30 min):** repo structure, `docker-compose`
+  (postgres/minio/mailpit/backend/frontend), `.env.example`, both apps boot, `/api/health` green.
+- **Phase 1 — Core vertical slice, NO auth (~60–75 min):** `leads` + Alembic; `POST /api/leads`
+  (multipart → MinIO → persist `PENDING`) → **both emails land in Mailpit**; public `/apply` form.
+  *Proves DB + storage + email + the core requirement end-to-end — demoable already.*
+- **Phase 2 — Auth handshake as a thin spike (~75–90 min, #1 risk):** Better Auth email+password
+  + JWT plugin + JWKS; seed attorney via API; FastAPI `core/security` verifies EdDSA via
+  `PyJWKClient` with the §6.2 two-URL config; **prove ONE protected call returns 200 in Docker
+  AND in a test** before any dashboard UI. Then lock `GET`/`PATCH` behind `Depends`.
+- **Phase 3 — Dashboard UI (~45–60 min):** list + state badge + Mark Reached Out (PATCH) +
+  resume download (via `S3_PUBLIC_ENDPOINT`) + middleware protection.
+- **Phase 4 — Required tests + docs (~45 min):** the §12 required suite, `RUNNING.md`,
+  `.env.example`, agent-usage notes.
+- **Phase 5 — Loom on local Compose (~30 min):** record the canonical E2E. Cloud deploy only
+  if time remains; it is the first thing to drop to "documented, not live" if behind.
 ```
