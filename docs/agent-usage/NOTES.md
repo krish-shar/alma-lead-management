@@ -64,3 +64,13 @@ usage against docs" discipline, given this was the riskiest integration. Files: 
 (injectable JWKS/issuer/audience for testability), endpoint guards in `routes_leads.py`,
 `scripts/seed-attorney.sh`. Verified the full spike: seed → sign-in → mint EdDSA JWT →
 protected call 200, bogus token 401; auth tables coexist with `leads` (Alembic filter holds).
+
+## Phase 3 — Internal dashboard UI (from the Claude Design handoff)
+Agent-generated implementation of the design's Login, Dashboard, and Lead-detail screens,
+wired to the real authed API. `frontend/app/login/page.tsx` (Better Auth sign-in),
+`frontend/app/dashboard/page.tsx` (filter tabs, skeleton/empty states, rows with mark-reached/
+download, `useSession` for the real attorney identity), `frontend/app/dashboard/[id]/page.tsx`
+(contact, resume, timeline). `frontend/lib/leads-client.ts` (Bearer + refetch-on-401),
+`frontend/middleware.ts` (route guard). The design (Alma.dc.html) was authored by the user via
+Claude Design; pixel-faithful re-creation + live API/auth wiring by the agent. Verified: tsc
+clean, login renders, dashboard redirects when unauthenticated. Full interactive E2E in Phase 5.
