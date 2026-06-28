@@ -37,10 +37,12 @@ export default function LeadDetailPage() {
         if (!active) return;
         setLead(l);
         setNotes(l.notes);
-        // Fetch a presigned URL for the inline preview / download (PDFs preview inline).
-        getResumeUrl(id)
-          .then((url) => active && setResumeUrl(url))
-          .catch(() => undefined);
+        // Only PDFs preview inline; fetch an inline-disposition URL so the browser renders it.
+        if (l.resume_filename.toLowerCase().endsWith(".pdf")) {
+          getResumeUrl(id, { inline: true })
+            .then((url) => active && setResumeUrl(url))
+            .catch(() => undefined);
+        }
       })
       .catch((err) => {
         if (err instanceof UnauthorizedError) router.replace("/login");

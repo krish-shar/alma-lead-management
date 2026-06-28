@@ -75,10 +75,14 @@ class LeadService:
             raise LeadNotFound(lead_id)
         return lead
 
-    def resume_download_url(self, lead_id: uuid.UUID) -> str:
+    def resume_download_url(self, lead_id: uuid.UUID, *, inline: bool = False) -> str:
         lead = self.get_lead(lead_id)
         return self.storage.presigned_get_url(
-            lead.resume_key, lead.resume_filename, settings.resume_url_ttl_seconds
+            lead.resume_key,
+            lead.resume_filename,
+            settings.resume_url_ttl_seconds,
+            content_type=lead.resume_content_type,
+            inline=inline,
         )
 
     def update_notes(self, lead_id: uuid.UUID, notes: str) -> Lead:
