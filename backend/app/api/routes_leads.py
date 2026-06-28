@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.files import ResumeError, validate_resume
+from app.core.security import require_attorney
 from app.db.session import get_db
 from app.models.lead import LeadState
 from app.schemas.lead import LeadCreate, LeadList, LeadRead, LeadUpdate
@@ -99,6 +100,7 @@ def list_leads(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     service: LeadService = Depends(get_lead_service),
+    _attorney: dict = Depends(require_attorney),
 ) -> LeadList:
     items, total = service.list_leads(state, limit, offset)
     return LeadList(items=[LeadRead.model_validate(i) for i in items], total=total)
@@ -106,7 +108,9 @@ def list_leads(
 
 @router.get("/{lead_id}", response_model=LeadRead)
 def get_lead(
-    lead_id: uuid.UUID, service: LeadService = Depends(get_lead_service)
+    lead_id: uuid.UUID,
+    service: LeadService = Depends(get_lead_service),
+    _attorney: dict = Depends(require_attorney),
 ) -> LeadRead:
     try:
         return LeadRead.model_validate(service.get_lead(lead_id))
@@ -116,7 +120,9 @@ def get_lead(
 
 @router.get("/{lead_id}/resume")
 def get_lead_resume(
-    lead_id: uuid.UUID, service: LeadService = Depends(get_lead_service)
+    lead_id: uuid.UUID,
+    service: LeadService = Depends(get_lead_service),
+    _attorney: dict = Depends(require_attorney),
 ) -> dict:
     try:
         return {"url": service.resume_download_url(lead_id)}
@@ -129,6 +135,7 @@ def update_lead(
     lead_id: uuid.UUID,
     payload: LeadUpdate,
     service: LeadService = Depends(get_lead_service),
+    _attorney: dict = Depends(require_attorney),
 ) -> LeadRead:
     try:
         return LeadRead.model_validate(service.transition(lead_id, payload.state))
