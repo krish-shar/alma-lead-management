@@ -53,6 +53,13 @@ submission would have 500'd instead of returning a clean 422. The integration te
 `errors(include_url=False, include_context=False, include_input=False)`. Verified live: a bad
 submission now returns a structured 422.
 
+**From the inline-PDF-preview feature (fixed):** adding an in-app PDF preview, the agent served
+the resume with `Content-Disposition: inline` and a content-type echoed from the upload — a
+classic stored-XSS pattern (a non-PDF could render as HTML/SVG in the attorney's browser). The
+commit security review flagged it; hardened so the inline path only ever serves genuine PDFs and
+**forces `application/pdf`** (never an upload-influenced type). Verified: PDF → inline, DOCX
+requested inline → falls back to attachment.
+
 **Two more from the commit-level security review (fixed):**
 - *HTTP header injection via `Content-Disposition`* (`storage.py`): the presigned-URL helper
   embedded the original filename into the header; a CRLF/quote payload could split the header.

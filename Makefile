@@ -38,6 +38,12 @@ seed: ## Run all migrations, create the storage bucket, and seed the attorney
 	docker compose exec -T frontend npx @better-auth/cli@latest migrate -y
 	bash scripts/seed-attorney.sh
 
+demo: ## Reset to a realistic demo dataset (sample leads + real resumes) and clear Mailpit
+	docker compose cp scripts/sample-resumes backend:/tmp/sample-resumes
+	docker compose exec -T backend python -m app.seed_demo /tmp/sample-resumes
+	-curl -s -X DELETE http://localhost:8025/api/v1/messages >/dev/null
+	@echo "Demo data seeded → http://localhost:3000  (login: maya.okafor@alma.law / almademo2026)"
+
 test: ## Run all tests (backend pytest + frontend vitest)
 	docker compose exec -T backend pytest
 	docker compose exec -T frontend npm test
