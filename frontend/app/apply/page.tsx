@@ -4,28 +4,16 @@ import Link from "next/link";
 import { useState } from "react";
 import { Logo } from "@/components/Logo";
 import { AlertCircle, ChevronLeft, FileDoc, Shield } from "@/components/icons";
+import { readErrorDetail, submitLead } from "@/lib/api";
 import {
-  ALLOWED_RESUME_EXTENSIONS,
-  MAX_RESUME_BYTES,
-  readErrorDetail,
-  submitLead,
-} from "@/lib/api";
+  type ApplyErrors,
+  type ApplyForm,
+  computeApplyErrors,
+  validateResumeFile,
+} from "@/lib/validation";
 
-type Form = { firstName: string; lastName: string; email: string };
+
 type Status = "idle" | "submitting" | "success" | "error";
-type Errors = Partial<Record<"firstName" | "lastName" | "email" | "file", string>>;
-
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-function computeErrors(form: Form, file: File | null): Errors {
-  const e: Errors = {};
-  if (!form.firstName.trim()) e.firstName = "Please enter your first name.";
-  if (!form.lastName.trim()) e.lastName = "Please enter your last name.";
-  if (!form.email.trim()) e.email = "Please enter your email.";
-  else if (!EMAIL_RE.test(form.email.trim())) e.email = "Please enter a valid email address.";
-  if (!file) e.file = "Please attach your resume or CV.";
-  return e;
-}
 
 function formatSize(bytes: number): string {
   return bytes >= 1048576
@@ -38,7 +26,7 @@ const inputClass =
 const labelClass = "mb-[7px] block text-[13.5px] font-semibold text-ink-2";
 
 export default function ApplyPage() {
-  const [form, setForm] = useState<Form>({ firstName: "", lastName: "", email: "" });
+  const [form, setForm] = useState<ApplyForm>({ firstName: "", lastName: "", email: "" });
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState("");
   const [touched, setTouched] = useState<Record<string, boolean>>({});
@@ -47,24 +35,19 @@ export default function ApplyPage() {
   const [serverError, setServerError] = useState("");
   const [applicantEmail, setApplicantEmail] = useState("");
 
-  const errors = computeErrors(form, file);
-  const show = (f: keyof Errors) => Boolean(touched[f] || submitAttempted);
-  const set = (k: keyof Form) => (e: React.ChangeEvent<HTMLInputElement>) =>
+  const errors = computeApplyErrors(form, file);
+  const show = (f: keyof ApplyErrors) => Boolean(touched[f] || submitAttempted);
+  const set = (k: keyof ApplyForm) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((s) => ({ ...s, [k]: e.target.value }));
   const blur = (k: string) => () => setTouched((s) => ({ ...s, [k]: true }));
 
   function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
     if (!f) return;
-    const lower = f.name.toLowerCase();
-    if (!ALLOWED_RESUME_EXTENSIONS.some((ext) => lower.endsWith(ext))) {
+    const err = validateResumeFile(f);
+    if (err) {
       setFile(null);
-      setFileError("Please upload a PDF, DOC, or DOCX file.");
-      return;
-    }
-    if (f.size > MAX_RESUME_BYTES) {
-      setFile(null);
-      setFileError("File must be 4 MB or smaller.");
+      setFileError(err);
       return;
     }
     setFile(f);
@@ -81,7 +64,7 @@ export default function ApplyPage() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSubmitAttempted(true);
-    const errs = computeErrors(form, file);
+    const errs = computeApplyErrors(form, file);
     if (!file && errs.file) setFileError(errs.file);
     if (Object.keys(errs).length) return;
 

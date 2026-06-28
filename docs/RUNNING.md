@@ -53,7 +53,9 @@ This runs the Alembic migrations (creates the `leads` table), runs Better Auth's
 
 ## Running the tests
 ```bash
-make test        # = docker compose exec backend pytest  (26 tests, ~0.1s)
+make test            # backend (pytest, 31) + frontend (vitest, 20)
+make test-backend    # backend only
+make test-frontend   # frontend only
 ```
 
 ## Useful commands

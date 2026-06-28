@@ -38,8 +38,15 @@ seed: ## Run all migrations, create the storage bucket, and seed the attorney
 	docker compose exec -T frontend npx @better-auth/cli@latest migrate -y
 	bash scripts/seed-attorney.sh
 
-test: ## Run the backend test suite inside the container
+test: ## Run all tests (backend pytest + frontend vitest)
 	docker compose exec -T backend pytest
+	docker compose exec -T frontend npm test
+
+test-backend: ## Backend tests only
+	docker compose exec -T backend pytest
+
+test-frontend: ## Frontend tests only
+	docker compose exec -T frontend npm test
 
 fmt: ## Format/lint backend
 	docker compose exec -T backend ruff check --fix app tests
