@@ -13,10 +13,19 @@ from sqlalchemy.orm import Session
 
 import app.models  # noqa: F401 - register models on Base.metadata
 from app.api.routes_leads import get_storage_dep
+from app.core import ratelimit
 from app.core.security import require_attorney
 from app.db.session import engine, get_db
 from app.main import app
 from tests.fakes import FakeStorageClient
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limiter():
+    """Each test starts with clean rate-limit counters (deterministic)."""
+    ratelimit.reset()
+    yield
+    ratelimit.reset()
 
 
 @pytest.fixture()

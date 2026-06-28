@@ -52,5 +52,8 @@ class Lead(Base):
         DateTime(timezone=True), nullable=True
     )
 
+    # Private attorney notes (internal; never shown to the prospect).
+    notes: Mapped[str] = mapped_column(String(5000), nullable=False, server_default="")
+
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return f"<Lead {self.id} {self.email} {self.state.value}>"

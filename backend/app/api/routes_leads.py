@@ -20,7 +20,8 @@ from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.files import ResumeError, validate_resume
+from app.core.files import ResumeError, sniff_resume, validate_resume
+from app.core.ratelimit import rate_limit_public
 from app.core.security import require_attorney
 from app.db.session import get_db
 from app.models.lead import LeadState
@@ -38,6 +39,7 @@ _RESUME_ERROR_STATUS = {
     ResumeError.TOO_LARGE: status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
     ResumeError.BAD_EXTENSION: status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
     ResumeError.BAD_TYPE: status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+    ResumeError.BAD_CONTENT: status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
 }
 
 
@@ -60,6 +62,7 @@ def create_lead(
     email: str = Form(...),
     resume: UploadFile = File(...),
     service: LeadService = Depends(get_lead_service),
+    _rate_limit: None = Depends(rate_limit_public),
 ) -> LeadRead:
     """Public endpoint: validate, store the resume, persist the lead, and email both
     the prospect and the attorney (in the background)."""
@@ -83,6 +86,12 @@ def create_lead(
     )
     if error is not None:
         raise HTTPException(status_code=_RESUME_ERROR_STATUS[error.reason], detail=error.message)
+
+    content_error = sniff_resume(content)
+    if content_error is not None:
+        raise HTTPException(
+            status_code=_RESUME_ERROR_STATUS[content_error.reason], detail=content_error.message
+        )
 
     lead = service.create_lead(
         first_name=data.first_name,
@@ -148,7 +157,12 @@ def update_lead(
     _attorney: dict = Depends(require_attorney),
 ) -> LeadRead:
     try:
-        return LeadRead.model_validate(service.transition(lead_id, payload.state))
+        lead = service.get_lead(lead_id)
+        if payload.notes is not None:
+            lead = service.update_notes(lead_id, payload.notes)
+        if payload.state is not None:
+            lead = service.transition(lead_id, payload.state)
+        return LeadRead.model_validate(lead)
     except LeadNotFound as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lead not found") from exc
     except InvalidStateTransition as exc:
