@@ -43,6 +43,10 @@ This runs the Alembic migrations (creates the `leads` table), runs Better Auth's
 - **Email:** `maya.okafor@alma.law`
 - **Password:** `almademo2026`
 
+To create another account, go to **/signup** and use the **registration code** from `.env`
+(`REGISTRATION_CODE`, default `alma-staff-2026`). The code is server-validated, so only people
+with it can provision attorney access.
+
 ## 5. Try the full flow
 1. Go to **/apply**, fill in name + email, attach any PDF/DOC/DOCX (≤ 4 MB), submit.
 2. Open **Mailpit** (http://localhost:8025) — you'll see **two** emails: a confirmation to the

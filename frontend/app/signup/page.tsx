@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Logo } from "@/components/Logo";
 import { AlertCircle } from "@/components/icons";
-import { signUp } from "@/lib/auth-client";
 
 const inputClass =
   "h-12 w-full rounded-[11px] border border-line-2 bg-white px-[14px] text-[15px] text-ink transition-[border-color,box-shadow] outline-none focus:border-accent focus:shadow-[0_0_0_3px_var(--color-accent-soft)]";
@@ -16,6 +15,7 @@ export default function SignupPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -29,23 +29,43 @@ export default function SignupPage() {
       setError("Password must be at least 10 characters.");
       return;
     }
+    if (!code.trim()) {
+      setError("A registration code is required to create an account.");
+      return;
+    }
     setLoading(true);
     setError("");
-    const { error: signUpError } = await signUp.email({
-      name: name.trim(),
-      email: email.trim(),
-      password,
+    const res = await fetch("/api/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: name.trim(),
+        email: email.trim(),
+        password,
+        code: code.trim(),
+      }),
     });
-    if (signUpError) {
-      setLoading(false);
-      setError(
-        signUpError.message?.toLowerCase().includes("exist")
-          ? "An account with that email already exists."
-          : signUpError.message || "Couldn’t create the account. Please try again.",
-      );
-    } else {
-      router.push("/dashboard"); // Better Auth signs the new attorney in
+    if (res.ok) {
+      router.push("/dashboard"); // the new attorney is signed in
+      return;
     }
+    setLoading(false);
+    if (res.status === 403) {
+      setError("That registration code isn’t valid.");
+      return;
+    }
+    let message = "Couldn’t create the account. Please try again.";
+    try {
+      const data = await res.json();
+      if (typeof data?.message === "string") {
+        message = data.message.toLowerCase().includes("exist")
+          ? "An account with that email already exists."
+          : data.message;
+      }
+    } catch {
+      /* keep default */
+    }
+    setError(message);
   }
 
   return (
@@ -119,7 +139,7 @@ export default function SignupPage() {
                 className={inputClass}
               />
             </div>
-            <div className="mb-[22px]">
+            <div className="mb-[18px]">
               <label htmlFor="password" className={labelClass}>
                 Password <span className="font-normal text-muted-2">(at least 10 characters)</span>
               </label>
@@ -129,6 +149,20 @@ export default function SignupPage() {
                 autoComplete="new-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                className={inputClass}
+              />
+            </div>
+            <div className="mb-[22px]">
+              <label htmlFor="code" className={labelClass}>
+                Registration code
+              </label>
+              <input
+                id="code"
+                type="text"
+                autoComplete="off"
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                placeholder="Provided by your firm admin"
                 className={inputClass}
               />
             </div>

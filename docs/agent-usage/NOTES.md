@@ -60,6 +60,12 @@ commit security review flagged it; hardened so the inline path only ever serves 
 **forces `application/pdf`** (never an upload-influenced type). Verified: PDF → inline, DOCX
 requested inline → falls back to attachment.
 
+**From the sign-up feature (fixed):** the first cut of attorney sign-up was open — anyone could
+self-provision access to all prospect PII (broken access control). Hardened with a
+**server-validated registration code** (`/api/register` checks it against an env secret before
+creating the account; the client is never trusted). Verified: no/wrong code → 403, correct code →
+account created + signed in, password policy still enforced.
+
 **Two more from the commit-level security review (fixed):**
 - *HTTP header injection via `Content-Disposition`* (`storage.py`): the presigned-URL helper
   embedded the original filename into the header; a CRLF/quote payload could split the header.

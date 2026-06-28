@@ -364,10 +364,11 @@ Because every dependency is env-driven (§2.1), deploy is config, not code chang
 - Secrets only via env; `.env` git-ignored; `.env.example` documents required keys.
 - **Auth hardening:** Better Auth brute-force rate limiting (sign-in 5/min per IP → 429),
   min password length 10, explicit 7-day session expiry (daily refresh). Staff self-provision
-  via `/signup` (open for local/demo use; production would gate it — see deferred items).
+  via `/signup`, **gated by a server-validated registration code** so randoms can't provision
+  access to prospect PII.
 - **Upload hardening:** per-IP rate limiting on the public form, magic-byte type sniffing
   (rejects a renamed file), filename sanitization, size cap, bounded read.
-- Deferred + documented (not silent): virus scanning, captcha, MFA, invite-only sign-up.
+- Deferred + documented (not silent): virus scanning, captcha, MFA.
 
 ---
 

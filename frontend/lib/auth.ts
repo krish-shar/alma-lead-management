@@ -18,8 +18,8 @@ export const auth = betterAuth({
     enabled: true,
     minPasswordLength: 10,
     maxPasswordLength: 128,
-    // Staff can self-provision via /signup. Open for local/demo use; a production deploy
-    // would gate this (invite-only / admin-created accounts) and add MFA.
+    // Staff self-provision via /signup, gated by a registration code (see app/api/register —
+    // the code is server-validated, never trusted from the client). Prod would add MFA.
   },
   // Session lifetime: 7-day expiry, refreshed daily on activity.
   session: {
