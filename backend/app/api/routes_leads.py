@@ -62,7 +62,8 @@ def create_lead(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=exc.errors()
         ) from exc
 
-    content = resume.file.read()
+    # Read at most max+1 bytes so an oversized upload can't exhaust memory before we reject it.
+    content = resume.file.read(settings.max_resume_bytes + 1)
     error = validate_resume(
         resume.filename or "resume",
         resume.content_type or "",

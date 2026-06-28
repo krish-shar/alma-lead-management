@@ -40,3 +40,17 @@ Caught by the automated security review, confirmed real, and fixed by HTML-escap
 interpolated value (`html.escape`, with `quote=True` for the href URL) while leaving the
 plain-text body intact. Verified with an explicit payload test. This is a representative example
 of subtly unsafe agent output and how the review/verify loop caught it.
+
+**Two more from the commit-level security review (fixed):**
+- *HTTP header injection via `Content-Disposition`* (`storage.py`): the presigned-URL helper
+  embedded the original filename into the header; a CRLF/quote payload could split the header.
+  Fixed by sanitizing the filename to printable ASCII without quotes/CR/LF. Verified with a payload.
+- *Unbounded upload read* (`routes_leads.py`): the whole upload was read into memory before the
+  size check (memory-exhaustion DoS). Fixed by reading at most `max+1` bytes, then rejecting >max
+  with `413`. Verified a ~5 MB upload is rejected and a normal one still succeeds.
+
+**Acknowledged, not a code change now — intentional sequencing:** the review also flagged the
+GET/PATCH/`/resume` lead endpoints as unauthenticated (PII exposure). This is **deliberate**: the
+design (DESIGN.md §17) sequences the Better Auth ↔ JWKS guard as Phase 2, which is next, and the
+stack is local-only (not deployed). Those endpoints get `require_attorney` in Phase 2; a full
+security pass (security-review skill) runs in Phase 4 to close any remaining items.
