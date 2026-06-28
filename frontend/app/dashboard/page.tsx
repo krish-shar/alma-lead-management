@@ -177,7 +177,7 @@ export default function DashboardPage() {
               <div className="min-w-[760px]">
                 <div className="grid grid-cols-[2.2fr_2.4fr_1.3fr_1.2fr_1.6fr] gap-4 border-b border-line bg-surface-2 px-[22px] py-[11px] text-[11.5px] font-bold uppercase tracking-[0.05em] text-muted-2">
                   <SortHeader label="Applicant" active={sort.key === "name"} dir={sort.dir} onClick={() => toggleSort("name")} />
-                  <div className="flex items-center">Email</div>
+                  <div className="flex items-center justify-center">Email</div>
                   <SortHeader label="Status" align="center" active={sort.key === "status"} dir={sort.dir} onClick={() => toggleSort("status")} />
                   <SortHeader label="Submitted" align="center" active={sort.key === "submitted"} dir={sort.dir} onClick={() => toggleSort("submitted")} />
                   <div className="text-right">Actions</div>
@@ -283,7 +283,7 @@ function LeadRow({
           )}
         </div>
       </div>
-      <div className="truncate text-sm text-body-2">{lead.email}</div>
+      <div className="truncate text-center text-sm text-body-2">{lead.email}</div>
       <div className="flex justify-center">
         <StatusBadge state={lead.state} />
       </div>
