@@ -5,14 +5,15 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Toast, useToast } from "@/components/Toast";
-import { CheckSmall, ChevronLeft, Download, FileDoc } from "@/components/icons";
+import { CheckSmall, ChevronLeft, Download, FileDoc, Trash, Undo } from "@/components/icons";
 import { fmtDateTime, fullName, initials, type Lead } from "@/lib/api";
 import { signOut } from "@/lib/auth-client";
 import {
+  deleteLead,
   downloadResume,
   getResumeUrl,
   getLead,
-  markReachedOut,
+  setReachedOut,
   UnauthorizedError,
   updateNotes,
 } from "@/lib/leads-client";
@@ -29,6 +30,7 @@ export default function LeadDetailPage() {
   const [resumeUrl, setResumeUrl] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
   const [savingNotes, setSavingNotes] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -54,14 +56,25 @@ export default function LeadDetailPage() {
     };
   }, [id, router]);
 
-  async function onMarkReached() {
+  async function onSetReached(reached: boolean) {
     if (!lead) return;
     try {
-      const updated = await markReachedOut(lead.id);
+      const updated = await setReachedOut(lead.id, reached);
       setLead(updated);
-      showToast("Marked as reached out.");
+      showToast(reached ? "Marked as reached out." : "Moved back to pending.");
     } catch {
       showToast("Couldn’t update that lead — please retry.");
+    }
+  }
+
+  async function onDelete() {
+    if (!lead) return;
+    try {
+      await deleteLead(lead.id);
+      showToast("Lead deleted.");
+      router.push("/dashboard");
+    } catch {
+      showToast("Couldn’t delete that lead — please retry.");
     }
   }
 
@@ -138,15 +151,52 @@ export default function LeadDetailPage() {
                   <StatusBadge state={lead.state} size="md" pendingLabel="Pending outreach" />
                 </div>
               </div>
-              {lead.state === "PENDING" && (
-                <button
-                  onClick={onMarkReached}
-                  className="inline-flex h-[46px] items-center gap-[9px] rounded-[11px] bg-accent px-5 text-[14.5px] font-semibold text-white transition-colors hover:bg-accent-hover"
-                >
-                  <CheckSmall className="text-white" />
-                  Mark reached out
-                </button>
-              )}
+              <div className="flex flex-wrap items-center gap-2.5">
+                {confirmingDelete ? (
+                  <div className="flex flex-wrap items-center gap-2.5 rounded-[12px] border border-error-line bg-error-bg px-3.5 py-2.5">
+                    <span className="text-[13.5px] font-semibold text-error-ink">Delete this lead?</span>
+                    <button
+                      onClick={onDelete}
+                      className="inline-flex h-9 items-center rounded-[9px] bg-error-ink-2 px-3.5 text-[13px] font-semibold text-white transition-colors hover:bg-error-ink"
+                    >
+                      Delete
+                    </button>
+                    <button
+                      onClick={() => setConfirmingDelete(false)}
+                      className="inline-flex h-9 items-center rounded-[9px] border border-line-2 bg-white px-3.5 text-[13px] font-semibold text-ink-2 transition-colors hover:bg-canvas"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    {lead.state === "PENDING" ? (
+                      <button
+                        onClick={() => onSetReached(true)}
+                        className="inline-flex h-[46px] items-center gap-[9px] rounded-[11px] bg-accent px-5 text-[14.5px] font-semibold text-white transition-colors hover:bg-accent-hover"
+                      >
+                        <CheckSmall className="text-white" />
+                        Mark reached out
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => onSetReached(false)}
+                        className="inline-flex h-[46px] items-center gap-[9px] rounded-[11px] border border-line-2 bg-white px-5 text-[14.5px] font-semibold text-ink-2 transition-colors hover:border-accent hover:bg-accent-soft"
+                      >
+                        <Undo className="text-ink-2" />
+                        Mark pending
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setConfirmingDelete(true)}
+                      className="inline-flex h-[46px] items-center gap-[9px] rounded-[11px] border border-line-2 bg-white px-4 text-[14.5px] font-semibold text-ink-2 transition-colors hover:border-error-line hover:bg-error-bg hover:text-error-ink-2"
+                    >
+                      <Trash />
+                      Delete
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
 
             <div className="flex flex-wrap items-start gap-[22px]">

@@ -50,8 +50,9 @@ class LeadList(BaseModel):
 
 
 class LeadUpdate(BaseModel):
-    """An attorney may advance the state (forward-only) and/or edit the private notes.
-    Both fields are optional so the dashboard can patch them independently."""
+    """An attorney may change the state (advance to reached-out, or undo back to pending)
+    and/or edit the private notes. Both fields are optional so the dashboard can patch them
+    independently."""
 
     state: LeadState | None = None
     notes: str | None = None

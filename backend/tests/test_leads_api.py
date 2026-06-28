@@ -69,9 +69,10 @@ def test_list_requires_authentication(unauth_client):
         unauth_client.patch(f"/api/leads/{uuid.uuid4()}", json={"state": "REACHED_OUT"}).status_code
         == 401
     )
+    assert unauth_client.delete(f"/api/leads/{uuid.uuid4()}").status_code == 401
 
 
-def test_list_patch_idempotent_and_illegal_transition(client, monkeypatch):
+def test_list_patch_idempotent_and_reversible_transition(client, monkeypatch):
     import app.api.routes_leads as routes
 
     monkeypatch.setattr(routes, "send_new_lead_notifications", Mock())
@@ -91,8 +92,32 @@ def test_list_patch_idempotent_and_illegal_transition(client, monkeypatch):
     # Re-mark is an idempotent no-op
     assert client.patch(f"/api/leads/{lead_id}", json={"state": "REACHED_OUT"}).status_code == 200
 
-    # Illegal backwards transition
-    assert client.patch(f"/api/leads/{lead_id}", json={"state": "PENDING"}).status_code == 409
+    # Undo: REACHED_OUT -> PENDING is an allowed reversal that clears the timestamp
+    undo = client.patch(f"/api/leads/{lead_id}", json={"state": "PENDING"})
+    assert undo.status_code == 200
+    assert undo.json()["state"] == "PENDING"
+    assert undo.json()["reached_out_at"] is None
+
+
+def test_delete_soft_deletes_and_hides_lead(client, db_session, storage, monkeypatch):
+    import app.api.routes_leads as routes
+
+    monkeypatch.setattr(routes, "send_new_lead_notifications", Mock())
+    lead_id = client.post("/api/leads", data=_fields(email="del@x.com"), files=_pdf()).json()["id"]
+    assert any(k.startswith(f"resumes/{lead_id}/") for k in storage.objects)
+
+    assert client.delete(f"/api/leads/{lead_id}").status_code == 204
+
+    # Hidden from both the detail view and the listing...
+    assert client.get(f"/api/leads/{lead_id}").status_code == 404
+    listing = client.get("/api/leads").json()
+    assert all(item["id"] != lead_id for item in listing["items"])
+    # ...but the resume object is retained — a soft delete never destroys applicant data.
+    assert any(k.startswith(f"resumes/{lead_id}/") for k in storage.objects)
+
+
+def test_delete_unknown_lead_returns_404(client):
+    assert client.delete(f"/api/leads/{uuid.uuid4()}").status_code == 404
 
 
 def test_get_unknown_lead_returns_404(client):

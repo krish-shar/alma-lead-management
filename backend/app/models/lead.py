@@ -48,6 +48,12 @@ class Lead(Base):
     )
     reached_out_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # Soft delete: a non-null deleted_at archives the lead (hidden from every listing/detail)
+    # while the row and its resume are retained. Applicant data is never hard-destroyed.
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+
     # Private attorney notes (internal; never shown to the prospect).
     notes: Mapped[str] = mapped_column(String(5000), nullable=False, server_default="")
 

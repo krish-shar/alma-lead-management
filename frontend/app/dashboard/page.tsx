@@ -5,11 +5,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Logo } from "@/components/Logo";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Toast, useToast } from "@/components/Toast";
-import { ChevronRight, Download, SignOut } from "@/components/icons";
+import { ChevronRight, Download, SignOut, Trash, Undo } from "@/components/icons";
 import { fmtDate, fullName, initials, type Lead } from "@/lib/api";
 import { signOut, useSession } from "@/lib/auth-client";
 import { exportLeadsCsv } from "@/lib/csv";
-import { downloadResume, fetchLeads, markReachedOut, UnauthorizedError } from "@/lib/leads-client";
+import { deleteLead, downloadResume, fetchLeads, setReachedOut, UnauthorizedError } from "@/lib/leads-client";
 import {
   computeDuplicateIds,
   type Filter,
@@ -63,14 +63,27 @@ export default function DashboardPage() {
         : { key, dir: key === "submitted" ? "desc" : "asc" },
     );
 
-  const onMarkReached = useCallback(
-    async (id: string) => {
+  const onSetReached = useCallback(
+    async (id: string, reached: boolean) => {
       try {
-        const updated = await markReachedOut(id);
+        const updated = await setReachedOut(id, reached);
         setLeads((prev) => prev.map((l) => (l.id === id ? updated : l)));
-        showToast("Marked as reached out.");
+        showToast(reached ? "Marked as reached out." : "Moved back to pending.");
       } catch {
         showToast("Couldn’t update that lead — please retry.");
+      }
+    },
+    [showToast],
+  );
+
+  const onDelete = useCallback(
+    async (id: string) => {
+      try {
+        await deleteLead(id);
+        setLeads((prev) => prev.filter((l) => l.id !== id));
+        showToast("Lead deleted.");
+      } catch {
+        showToast("Couldn’t delete that lead — please retry.");
       }
     },
     [showToast],
@@ -174,8 +187,8 @@ export default function DashboardPage() {
             <Empty filter={filter} hasLeads={leads.length > 0} hasQuery={query.trim().length > 0} />
           ) : (
             <div className="overflow-x-auto">
-              <div className="min-w-[760px]">
-                <div className="grid grid-cols-[2.2fr_2.4fr_1.3fr_1.2fr_1.6fr] gap-4 border-b border-line bg-surface-2 px-[22px] py-[11px] text-[11.5px] font-bold uppercase tracking-[0.05em] text-muted-2">
+              <div className="min-w-[1000px]">
+                <div className="grid grid-cols-[1.9fr_2fr_1.2fr_1.1fr_2.5fr] gap-4 border-b border-line bg-surface-2 px-[22px] py-[11px] text-[11.5px] font-bold uppercase tracking-[0.05em] text-muted-2">
                   <SortHeader label="Applicant" align="center" active={sort.key === "name"} dir={sort.dir} onClick={() => toggleSort("name")} />
                   <div className="flex items-center justify-center">Email</div>
                   <SortHeader label="Status" align="center" active={sort.key === "status"} dir={sort.dir} onClick={() => toggleSort("status")} />
@@ -188,8 +201,9 @@ export default function DashboardPage() {
                     lead={lead}
                     isDuplicate={duplicateIds.has(lead.id)}
                     onOpen={() => router.push(`/dashboard/${lead.id}`)}
-                    onMarkReached={() => onMarkReached(lead.id)}
+                    onSetReached={(reached) => onSetReached(lead.id, reached)}
                     onDownload={() => onDownload(lead)}
+                    onDelete={() => onDelete(lead.id)}
                   />
                 ))}
               </div>
@@ -247,15 +261,20 @@ function LeadRow({
   lead,
   isDuplicate,
   onOpen,
-  onMarkReached,
+  onSetReached,
   onDownload,
+  onDelete,
 }: {
   lead: Lead;
   isDuplicate: boolean;
   onOpen: () => void;
-  onMarkReached: () => void;
+  onSetReached: (reached: boolean) => void;
   onDownload: () => void;
+  onDelete: () => void;
 }) {
+  const [confirming, setConfirming] = useState(false);
+  const reached = lead.state === "REACHED_OUT";
+
   return (
     <div
       role="button"
@@ -267,20 +286,24 @@ function LeadRow({
           onOpen();
         }
       }}
-      className="grid cursor-pointer grid-cols-[2.2fr_2.4fr_1.3fr_1.2fr_1.6fr] items-center gap-4 border-b border-line-3 px-[22px] py-[15px] transition-colors hover:bg-surface-2"
+      className="grid cursor-pointer grid-cols-[1.9fr_2fr_1.2fr_1.1fr_2.5fr] items-center gap-4 border-b border-line-3 px-[22px] py-[15px] transition-colors hover:bg-surface-2"
     >
-      <div className="flex min-w-0 items-center justify-center gap-3">
-        <span className="inline-flex h-[34px] w-[34px] flex-none items-center justify-center rounded-full bg-accent-soft font-serif text-[13.5px] font-semibold text-accent-soft-ink">
-          {initials(lead)}
-        </span>
-        <div className="min-w-0">
-          <div className="truncate text-[15px] font-semibold text-ink">{fullName(lead)}</div>
-          {isDuplicate && (
-            <div className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-semibold text-pending-ink">
-              <span className="h-1 w-1 rounded-full bg-pending-dot" />
-              Re-application
-            </div>
-          )}
+      {/* Fixed-width block centered in the column, so the avatars line up in a clean column
+          (centering the avatar+name directly staggers them by name length). */}
+      <div className="flex justify-center">
+        <div className="flex w-[176px] min-w-0 items-center gap-3">
+          <span className="inline-flex h-[34px] w-[34px] flex-none items-center justify-center rounded-full bg-accent-soft font-serif text-[13.5px] font-semibold text-accent-soft-ink">
+            {initials(lead)}
+          </span>
+          <div className="min-w-0">
+            <div className="truncate text-[15px] font-semibold text-ink">{fullName(lead)}</div>
+            {isDuplicate && (
+              <div className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-semibold text-pending-ink">
+                <span className="h-1 w-1 rounded-full bg-pending-dot" />
+                Re-application
+              </div>
+            )}
+          </div>
         </div>
       </div>
       <div className="truncate text-center text-sm text-body-2">{lead.email}</div>
@@ -289,33 +312,74 @@ function LeadRow({
       </div>
       <div className="text-center text-sm text-body-2">{fmtDate(lead.created_at)}</div>
       <div className="flex items-center justify-center gap-[7px]">
-        {/* Always rendered (invisible when already reached out) so the icon cluster keeps a
-            constant width and the download/chevron line up across every row. */}
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onMarkReached();
-          }}
-          tabIndex={lead.state === "PENDING" ? 0 : -1}
-          aria-hidden={lead.state !== "PENDING"}
-          className={`h-8 whitespace-nowrap rounded-lg border border-line-2 bg-white px-3 text-[13px] font-semibold text-ink transition-colors hover:border-accent hover:bg-accent-soft ${lead.state === "PENDING" ? "" : "invisible"}`}
-        >
-          Mark reached out
-        </button>
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onDownload();
-          }}
-          aria-label="Download resume"
-          title="Download resume"
-          className="flex h-8 w-8 flex-none items-center justify-center rounded-lg border border-line-2 bg-white text-ink-2 transition-colors hover:border-accent hover:bg-accent-soft"
-        >
-          <Download />
-        </button>
-        <ChevronRight className="flex-none text-ink opacity-40" />
+        {confirming ? (
+          // Inline confirm — no native dialog. Soft delete, so the copy stays calm.
+          <>
+            <span className="text-[13px] font-medium text-muted">Delete?</span>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setConfirming(false);
+                onDelete();
+              }}
+              className="h-8 rounded-lg bg-error-ink-2 px-3 text-[13px] font-semibold text-white transition-colors hover:bg-error-ink"
+            >
+              Delete
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setConfirming(false);
+              }}
+              className="h-8 rounded-lg border border-line-2 bg-white px-3 text-[13px] font-semibold text-ink-2 transition-colors hover:bg-canvas"
+            >
+              Cancel
+            </button>
+          </>
+        ) : (
+          <>
+            {/* Fixed-width status toggle so the icon cluster keeps a constant width and the
+                download/delete/chevron line up across every row. */}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onSetReached(!reached);
+              }}
+              className="inline-flex h-8 w-[140px] items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-line-2 bg-white px-2 text-[13px] font-semibold text-ink transition-colors hover:border-accent hover:bg-accent-soft"
+            >
+              {reached && <Undo className="text-ink-2" />}
+              {reached ? "Mark pending" : "Mark reached out"}
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDownload();
+              }}
+              aria-label="Download resume"
+              title="Download resume"
+              className="flex h-8 w-8 flex-none items-center justify-center rounded-lg border border-line-2 bg-white text-ink-2 transition-colors hover:border-accent hover:bg-accent-soft"
+            >
+              <Download />
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setConfirming(true);
+              }}
+              aria-label="Delete lead"
+              title="Delete lead"
+              className="flex h-8 w-8 flex-none items-center justify-center rounded-lg border border-line-2 bg-white text-ink-2 transition-colors hover:border-error-line hover:bg-error-bg hover:text-error-ink-2"
+            >
+              <Trash />
+            </button>
+            <ChevronRight className="flex-none text-ink opacity-40" />
+          </>
+        )}
       </div>
     </div>
   );

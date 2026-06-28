@@ -32,16 +32,28 @@ export async function getLead(id: string): Promise<Lead> {
   return res.json();
 }
 
-export async function markReachedOut(id: string): Promise<Lead> {
+/** Set a lead's outreach state. `reached` advances to REACHED_OUT; `false` is the explicit
+ *  undo back to PENDING (the backend clears the reached-out timestamp). */
+export async function setReachedOut(id: string, reached: boolean): Promise<Lead> {
   const res = await ok(
     await authedFetch(`/api/leads/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ state: "REACHED_OUT" }),
+      body: JSON.stringify({ state: reached ? "REACHED_OUT" : "PENDING" }),
     }),
     "update lead",
   );
   return res.json();
+}
+
+export function markReachedOut(id: string): Promise<Lead> {
+  return setReachedOut(id, true);
+}
+
+/** Soft delete: the lead is hidden from every listing/detail, but its row + resume are
+ *  retained server-side (applicant data is never hard-destroyed). */
+export async function deleteLead(id: string): Promise<void> {
+  await ok(await authedFetch(`/api/leads/${id}`, { method: "DELETE" }), "delete lead");
 }
 
 export async function updateNotes(id: string, notes: string): Promise<Lead> {

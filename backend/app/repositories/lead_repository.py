@@ -23,7 +23,10 @@ class LeadRepository:
         return self.db.get(Lead, lead_id)
 
     def list(self, state: LeadState | None, limit: int, offset: int) -> tuple[list[Lead], int]:
-        filters = [Lead.state == state] if state is not None else []
+        # Soft-deleted leads are excluded from every listing and the total count.
+        filters = [Lead.deleted_at.is_(None)]
+        if state is not None:
+            filters.append(Lead.state == state)
 
         total = self.db.scalar(select(func.count()).select_from(Lead).where(*filters))
         items = self.db.scalars(

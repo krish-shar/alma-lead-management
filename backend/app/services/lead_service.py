@@ -71,7 +71,8 @@ class LeadService:
 
     def get_lead(self, lead_id: uuid.UUID) -> Lead:
         lead = self.repo.get(lead_id)
-        if lead is None:
+        # A soft-deleted lead is invisible to every read/update/resume operation (treated as 404).
+        if lead is None or lead.deleted_at is not None:
             raise LeadNotFound(lead_id)
         return lead
 
@@ -102,21 +103,34 @@ class LeadService:
         return lead
 
     def transition(self, lead_id: uuid.UUID, target: LeadState) -> Lead:
-        """Apply the one-way state machine.
+        """Apply the lead state machine (reversible).
 
-        PENDING → REACHED_OUT advances and stamps reached_out_at. Re-marking the same state
-        is an idempotent no-op. Any other transition (e.g. REACHED_OUT → PENDING) is illegal.
+        PENDING → REACHED_OUT advances and stamps reached_out_at. REACHED_OUT → PENDING is an
+        explicit undo (a mis-click, or outreach that fell through) and clears reached_out_at so
+        the timeline stays honest. Re-marking the same state is an idempotent no-op.
         """
         lead = self.get_lead(lead_id)
 
         if lead.state == target:
-            return lead  # idempotent: a repeat "Mark Reached Out" is a no-op, not an error
+            return lead  # idempotent: a repeat click is a no-op, not an error
 
-        if lead.state == LeadState.PENDING and target == LeadState.REACHED_OUT:
+        if target == LeadState.REACHED_OUT:
             lead.state = LeadState.REACHED_OUT
             lead.reached_out_at = datetime.now(UTC)
-            self.db.commit()
-            self.db.refresh(lead)
-            return lead
+        elif target == LeadState.PENDING:
+            lead.state = LeadState.PENDING
+            lead.reached_out_at = None  # undo: it is no longer reached out
+        else:  # pragma: no cover - only two states exist, so this is unreachable
+            raise InvalidStateTransition(lead.state, target)
 
-        raise InvalidStateTransition(lead.state, target)
+        self.db.commit()
+        self.db.refresh(lead)
+        return lead
+
+    def delete_lead(self, lead_id: uuid.UUID) -> None:
+        """Soft delete: stamp deleted_at so the lead is hidden from every listing and detail
+        view. The row and its resume are retained — applicant data is never hard-destroyed —
+        which keeps the action reversible and audit-friendly."""
+        lead = self.get_lead(lead_id)
+        lead.deleted_at = datetime.now(UTC)
+        self.db.commit()

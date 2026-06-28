@@ -13,6 +13,7 @@ from fastapi import (
     Form,
     HTTPException,
     Query,
+    Response,
     UploadFile,
     status,
 )
@@ -168,3 +169,17 @@ def update_lead(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lead not found") from exc
     except InvalidStateTransition as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@router.delete("/{lead_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_lead(
+    lead_id: uuid.UUID,
+    service: LeadService = Depends(get_lead_service),
+    _attorney: dict = Depends(require_attorney),
+) -> Response:
+    """Soft delete: hides the lead from every listing/detail. The row + resume are retained."""
+    try:
+        service.delete_lead(lead_id)
+    except LeadNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lead not found") from exc
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

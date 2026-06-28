@@ -78,3 +78,20 @@ export function CheckSmall({ className, size = 16 }: IconProps) {
     </svg>
   );
 }
+
+export function Undo({ className, size = 15 }: IconProps) {
+  return (
+    <svg className={className} width={size} height={size} viewBox="0 0 18 18" fill="none" aria-hidden>
+      <path d="M6 4L2.5 7.5 6 11" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M2.5 7.5H11a4.5 4.5 0 010 9H6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function Trash({ className, size = 15 }: IconProps) {
+  return (
+    <svg className={className} width={size} height={size} viewBox="0 0 18 18" fill="none" aria-hidden>
+      <path d="M3.5 5h11M7.5 5V3.9a1 1 0 011-1h1a1 1 0 011 1V5M6.2 5l.5 9a1 1 0 001 1h2.6a1 1 0 001-1l.5-9M8 8v4M10 8v4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
