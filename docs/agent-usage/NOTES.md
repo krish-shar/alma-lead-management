@@ -41,6 +41,14 @@ interpolated value (`html.escape`, with `quote=True` for the href URL) while lea
 plain-text body intact. Verified with an explicit payload test. This is a representative example
 of subtly unsafe agent output and how the review/verify loop caught it.
 
+**Caught by the test suite (Phase 4):** the `POST /api/leads` validation handler passed
+Pydantic's raw `ValidationError.errors()` as the HTTP detail. Those error dicts embed the
+original `ValueError` object in `ctx`, which is **not JSON-serializable** — so an invalid
+submission would have 500'd instead of returning a clean 422. The integration test
+`test_post_lead_validation_error` failed on exactly this; fixed with
+`errors(include_url=False, include_context=False, include_input=False)`. Verified live: a bad
+submission now returns a structured 422.
+
 **Two more from the commit-level security review (fixed):**
 - *HTTP header injection via `Content-Disposition`* (`storage.py`): the presigned-URL helper
   embedded the original filename into the header; a CRLF/quote payload could split the header.

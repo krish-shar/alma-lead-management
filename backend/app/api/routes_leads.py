@@ -28,7 +28,7 @@ from app.schemas.lead import LeadCreate, LeadList, LeadRead, LeadUpdate
 from app.services.email import send_new_lead_notifications
 from app.services.exceptions import InvalidStateTransition, LeadNotFound
 from app.services.lead_service import LeadService
-from app.services.storage import get_storage
+from app.services.storage import StorageClient, get_storage
 
 router = APIRouter(prefix="/api/leads", tags=["leads"])
 
@@ -41,8 +41,15 @@ _RESUME_ERROR_STATUS = {
 }
 
 
-def get_lead_service(db: Session = Depends(get_db)) -> LeadService:
-    return LeadService(db, get_storage())
+def get_storage_dep() -> StorageClient:
+    return get_storage()
+
+
+def get_lead_service(
+    db: Session = Depends(get_db),
+    storage: StorageClient = Depends(get_storage_dep),
+) -> LeadService:
+    return LeadService(db, storage)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=LeadRead)
@@ -59,8 +66,11 @@ def create_lead(
     try:
         data = LeadCreate(first_name=first_name, last_name=last_name, email=email)
     except ValidationError as exc:
+        # exclude_context/url: Pydantic's raw errors() embed the original exception object,
+        # which is not JSON-serializable. Keep just loc/msg/type for a clean 422 response.
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=exc.errors()
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=exc.errors(include_url=False, include_context=False, include_input=False),
         ) from exc
 
     # Read at most max+1 bytes so an oversized upload can't exhaust memory before we reject it.
