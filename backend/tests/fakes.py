@@ -18,8 +18,17 @@ class FakeStorageClient:
     def upload(self, key: str, data: bytes, content_type: str) -> None:
         self.objects[key] = (data, content_type)
 
-    def presigned_get_url(self, key: str, filename: str, expires_in: int) -> str:
-        return f"https://fake-storage.test/{key}?filename={filename}"
+    def presigned_get_url(
+        self,
+        key: str,
+        filename: str,
+        expires_in: int,
+        *,
+        content_type: str | None = None,
+        inline: bool = False,
+    ) -> str:
+        disposition = "inline" if inline else "attachment"
+        return f"https://fake-storage.test/{key}?filename={filename}&disposition={disposition}"
 
     def delete(self, key: str) -> None:
         self.objects.pop(key, None)

@@ -65,22 +65,35 @@ class StorageClient:
             Bucket=self.bucket, Key=key, Body=data, ContentType=content_type
         )
 
-    def presigned_get_url(self, key: str, filename: str, expires_in: int) -> str:
-        """Generate a time-limited download URL.
+    def presigned_get_url(
+        self,
+        key: str,
+        filename: str,
+        expires_in: int,
+        *,
+        content_type: str | None = None,
+        inline: bool = False,
+    ) -> str:
+        """Generate a time-limited URL for the object.
 
         Signed with the PUBLIC endpoint, because the signature is bound to the host and the
-        browser cannot resolve the internal Docker hostname (DESIGN.md 8.1). The
-        Content-Disposition override restores the prospect's original filename on download.
+        browser cannot resolve the internal Docker hostname (DESIGN.md 8.1).
+
+        `inline=True` makes the browser render the file (used for the in-app PDF preview);
+        the default `attachment` disposition triggers a download with the original filename.
+        The content-type override ensures the browser treats the bytes as e.g. a PDF.
         """
         safe_name = _safe_content_disposition_filename(filename)
+        disposition = "inline" if inline else "attachment"
+        params: dict[str, str] = {
+            "Bucket": self.bucket,
+            "Key": key,
+            "ResponseContentDisposition": f'{disposition}; filename="{safe_name}"',
+        }
+        if content_type:
+            params["ResponseContentType"] = content_type
         return self._public.generate_presigned_url(
-            "get_object",
-            Params={
-                "Bucket": self.bucket,
-                "Key": key,
-                "ResponseContentDisposition": f'attachment; filename="{safe_name}"',
-            },
-            ExpiresIn=expires_in,
+            "get_object", Params=params, ExpiresIn=expires_in
         )
 
     def delete(self, key: str) -> None:

@@ -140,11 +140,12 @@ def get_lead(
 @router.get("/{lead_id}/resume")
 def get_lead_resume(
     lead_id: uuid.UUID,
+    inline: bool = Query(default=False),
     service: LeadService = Depends(get_lead_service),
     _attorney: dict = Depends(require_attorney),
 ) -> dict:
     try:
-        return {"url": service.resume_download_url(lead_id)}
+        return {"url": service.resume_download_url(lead_id, inline=inline)}
     except LeadNotFound as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lead not found") from exc
 
