@@ -1,0 +1,40 @@
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# --- OMC / agent state ---
+.omc/
+.claude/
+
+# --- Secrets / env ---
+.env
+.env.*
+!.env.example
+*.local
+
+# --- Logs / temp ---
+*.log
+logs/
+tmp/
+.cache/
+
+# --- Node ---
+node_modules/
+dist/
+build/
+.next/
+coverage/
+*.tsbuildinfo
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
