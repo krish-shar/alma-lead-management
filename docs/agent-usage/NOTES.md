@@ -54,3 +54,13 @@ GET/PATCH/`/resume` lead endpoints as unauthenticated (PII exposure). This is **
 design (DESIGN.md §17) sequences the Better Auth ↔ JWKS guard as Phase 2, which is next, and the
 stack is local-only (not deployed). Those endpoints get `require_attorney` in Phase 2; a full
 security pass (security-review skill) runs in Phase 4 to close any remaining items.
+> Closed in Phase 2: those endpoints now return 401 without a valid attorney JWT.
+
+## Phase 2 — Auth (Better Auth ↔ FastAPI JWKS)
+Agent-generated, **with the agent first consulting the official Better Auth docs** (jwt plugin,
+Next.js integration, installation) via WebFetch before writing code — exactly the "verify SDK
+usage against docs" discipline, given this was the riskiest integration. Files: `frontend/lib/auth.ts`,
+`frontend/app/api/auth/[...all]/route.ts`, `frontend/lib/auth-client.ts`, `backend/app/core/security.py`
+(injectable JWKS/issuer/audience for testability), endpoint guards in `routes_leads.py`,
+`scripts/seed-attorney.sh`. Verified the full spike: seed → sign-in → mint EdDSA JWT →
+protected call 200, bogus token 401; auth tables coexist with `leads` (Alembic filter holds).
