@@ -5,13 +5,15 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Logo } from "@/components/Logo";
 import { AlertCircle } from "@/components/icons";
-import { signIn } from "@/lib/auth-client";
+import { signUp } from "@/lib/auth-client";
 
 const inputClass =
   "h-12 w-full rounded-[11px] border border-line-2 bg-white px-[14px] text-[15px] text-ink transition-[border-color,box-shadow] outline-none focus:border-accent focus:shadow-[0_0_0_3px_var(--color-accent-soft)]";
+const labelClass = "mb-[7px] block text-[13.5px] font-semibold text-ink-2";
 
-export default function LoginPage() {
+export default function SignupPage() {
   const router = useRouter();
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -19,18 +21,30 @@ export default function LoginPage() {
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!email.trim() || !password) {
-      setError("Please enter your email and password.");
+    if (!name.trim() || !email.trim()) {
+      setError("Please enter your name and email.");
+      return;
+    }
+    if (password.length < 10) {
+      setError("Password must be at least 10 characters.");
       return;
     }
     setLoading(true);
     setError("");
-    const { error: signInError } = await signIn.email({ email: email.trim(), password });
-    if (signInError) {
+    const { error: signUpError } = await signUp.email({
+      name: name.trim(),
+      email: email.trim(),
+      password,
+    });
+    if (signUpError) {
       setLoading(false);
-      setError("Email or password is incorrect.");
+      setError(
+        signUpError.message?.toLowerCase().includes("exist")
+          ? "An account with that email already exists."
+          : signUpError.message || "Couldn’t create the account. Please try again.",
+      );
     } else {
-      router.push("/dashboard");
+      router.push("/dashboard"); // Better Auth signs the new attorney in
     }
   }
 
@@ -42,10 +56,10 @@ export default function LoginPage() {
         </Link>
         <div className="max-w-[24em]">
           <h1 className="m-0 mb-3.5 font-serif text-[clamp(28px,3.4vw,38px)] font-medium leading-[1.1] tracking-[-0.02em]">
-            Secure access for Alma attorneys &amp; staff.
+            Create your Alma staff account.
           </h1>
           <p className="m-0 text-[15px] leading-[1.55] text-[rgba(234,241,236,0.78)]">
-            Review new prospect leads, manage outreach, and pick up exactly where you left off.
+            Attorneys and staff use Alma to review new prospect leads and manage outreach.
           </p>
         </div>
         <div className="flex items-center gap-2 text-[13px] text-[rgba(234,241,236,0.62)]">
@@ -53,17 +67,17 @@ export default function LoginPage() {
             <rect x="3" y="7" width="10" height="7" rx="1.5" stroke="rgba(234,241,236,.7)" strokeWidth="1.3" />
             <path d="M5.5 7V5a2.5 2.5 0 015 0v2" stroke="rgba(234,241,236,.7)" strokeWidth="1.3" />
           </svg>
-          Authorized personnel only
+          For authorized firm personnel
         </div>
       </div>
 
       <div className="flex flex-[1_1_420px] items-center justify-center bg-canvas p-[clamp(28px,5vw,56px)]">
         <div className="w-full max-w-[380px]">
-          <h2 className="m-0 mb-1.5 font-serif text-[30px] font-medium tracking-[-0.01em]">Sign in</h2>
+          <h2 className="m-0 mb-1.5 font-serif text-[30px] font-medium tracking-[-0.01em]">Create account</h2>
           <p className="m-0 mb-7 text-[15px] text-muted">
-            Welcome back.{" "}
-            <Link href="/signup" className="font-semibold text-accent">
-              Create an account
+            Already have one?{" "}
+            <Link href="/login" className="font-semibold text-accent">
+              Sign in
             </Link>
             .
           </p>
@@ -80,31 +94,39 @@ export default function LoginPage() {
 
           <form onSubmit={onSubmit} noValidate>
             <div className="mb-[18px]">
-              <label htmlFor="loginEmail" className="mb-[7px] block text-[13.5px] font-semibold text-ink-2">
-                Email
+              <label htmlFor="name" className={labelClass}>
+                Full name
               </label>
               <input
-                id="loginEmail"
+                id="name"
+                type="text"
+                autoComplete="name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className={inputClass}
+              />
+            </div>
+            <div className="mb-[18px]">
+              <label htmlFor="email" className={labelClass}>
+                Work email
+              </label>
+              <input
+                id="email"
                 type="email"
-                autoComplete="username"
+                autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className={inputClass}
               />
             </div>
             <div className="mb-[22px]">
-              <div className="mb-[7px] flex items-baseline justify-between">
-                <label htmlFor="loginPassword" className="text-[13.5px] font-semibold text-ink-2">
-                  Password
-                </label>
-                <button type="button" className="p-0 text-[13px] font-semibold text-accent">
-                  Forgot password?
-                </button>
-              </div>
+              <label htmlFor="password" className={labelClass}>
+                Password <span className="font-normal text-muted-2">(at least 10 characters)</span>
+              </label>
               <input
-                id="loginPassword"
+                id="password"
                 type="password"
-                autoComplete="current-password"
+                autoComplete="new-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className={inputClass}
@@ -118,19 +140,13 @@ export default function LoginPage() {
               {loading ? (
                 <>
                   <span className="anim-spin h-[17px] w-[17px] rounded-full border-2 border-white/40 border-t-white" />
-                  Signing in…
+                  Creating…
                 </>
               ) : (
-                "Sign in"
+                "Create account"
               )}
             </button>
           </form>
-
-          <div className="mt-[22px] rounded-[10px] border border-dashed border-line-2 px-3.5 py-[11px] text-[12.5px] leading-[1.5] text-muted-2">
-            <strong className="font-semibold text-muted">Demo</strong> — sign in with{" "}
-            <span className="font-semibold text-ink-2">maya.okafor@alma.law</span> /{" "}
-            <span className="font-semibold text-ink-2">almademo2026</span>.
-          </div>
         </div>
       </div>
     </div>
