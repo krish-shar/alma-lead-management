@@ -215,8 +215,9 @@ test JWKS (§12).
 
 ### 6.3 Obtaining the bearer token (the other under-specified bit)
 The JWT is **not** the session cookie — it is fetched separately while authenticated. The
-**dashboard is a client component** that calls **`authClient.token()`** (documented; also
-available as `GET /api/auth/token` or the `set-auth-jwt` response header) to get a fresh JWT,
+**dashboard is a client component** that calls **`authClient.token()`** (requires Better
+Auth's **`jwtClient` plugin** registered on the auth client; also available as
+`GET /api/auth/token` or the `set-auth-jwt` response header) to get a fresh JWT,
 attaches `Authorization: Bearer <jwt>` to FastAPI calls, and **re-fetches on a `401`** (covers
 the 15-min expiry). Route access is still gated by Next.js middleware (session check).
 
@@ -298,6 +299,7 @@ Transition validity lives in `LeadService.transition()` — unit-tested in isola
 | `/apply` (and `/`) | public | Lead form: validated fields + resume upload; posts directly to FastAPI; success state. |
 | `/login` | public | Attorney email+password login (Better Auth). |
 | `/dashboard` | protected | **Client component**: leads table (name, email, state badge, date), **Mark Reached Out** (PATCH), **resume download**, filter by state. |
+| `/dashboard/{id}` | protected | Lead detail: all fields + resume download + Mark Reached Out. This is the **deep-link target of the attorney notification email** (§7), so the link never rots. |
 
 - **Protection:** Next.js middleware redirects unauthenticated users from `/dashboard`; the
   client component fetches a JWT via `authClient.token()` for its FastAPI calls (§6.3).
