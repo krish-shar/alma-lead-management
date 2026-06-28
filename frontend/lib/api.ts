@@ -4,6 +4,48 @@
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
+export type LeadState = "PENDING" | "REACHED_OUT";
+
+export type Lead = {
+  id: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  resume_filename: string;
+  state: LeadState;
+  created_at: string;
+  updated_at: string;
+  reached_out_at: string | null;
+};
+
+export type LeadList = { items: Lead[]; total: number };
+
+// ---- display helpers (mirror the design's formatting) ----
+export const fullName = (l: Pick<Lead, "first_name" | "last_name">) =>
+  `${l.first_name} ${l.last_name}`;
+
+export const initials = (l: Pick<Lead, "first_name" | "last_name">) =>
+  `${l.first_name[0] ?? ""}${l.last_name[0] ?? ""}`.toUpperCase();
+
+export function fmtDate(iso: string | null): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+export function fmtDateTime(iso: string | null): string {
+  if (!iso) return "Not yet";
+  const dt = new Date(iso);
+  return (
+    dt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) +
+    " · " +
+    dt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+  );
+}
+
 export const MAX_RESUME_BYTES = 4 * 1024 * 1024; // keep in sync with backend (4 MB)
 export const ALLOWED_RESUME_EXTENSIONS = [".pdf", ".doc", ".docx"];
 
