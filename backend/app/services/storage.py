@@ -8,11 +8,20 @@ the browser cannot resolve the internal Docker hostname.
 
 from __future__ import annotations
 
+import re
+
 import boto3
 from botocore.client import Config
 from botocore.exceptions import ClientError
 
 from app.core.config import settings
+
+
+def _safe_content_disposition_filename(name: str) -> str:
+    """Strip characters that could break out of the Content-Disposition header value
+    (CR/LF for response splitting, quotes/backslashes for value breakout, control chars)."""
+    cleaned = re.sub(r"[^\x20-\x7e]", "_", name).replace('"', "").replace("\\", "")
+    return cleaned.strip() or "resume"
 
 
 def _build_client(endpoint: str):
@@ -63,12 +72,13 @@ class StorageClient:
         browser cannot resolve the internal Docker hostname (DESIGN.md 8.1). The
         Content-Disposition override restores the prospect's original filename on download.
         """
+        safe_name = _safe_content_disposition_filename(filename)
         return self._public.generate_presigned_url(
             "get_object",
             Params={
                 "Bucket": self.bucket,
                 "Key": key,
-                "ResponseContentDisposition": f'attachment; filename="{filename}"',
+                "ResponseContentDisposition": f'attachment; filename="{safe_name}"',
             },
             ExpiresIn=expires_in,
         )
