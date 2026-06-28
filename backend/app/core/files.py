@@ -44,6 +44,13 @@ class ResumeError(str, Enum):
     TOO_LARGE = "too_large"
     BAD_EXTENSION = "bad_extension"
     BAD_TYPE = "bad_type"
+    BAD_CONTENT = "bad_content"
+
+
+# Leading-byte signatures for the allowed document types.
+_SIG_PDF = b"%PDF"
+_SIG_ZIP = b"PK\x03\x04"  # DOCX (and all OOXML) are ZIP archives
+_SIG_OLE = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"  # legacy .doc (OLE2 compound file)
 
 
 @dataclass(frozen=True)
@@ -76,3 +83,14 @@ def validate_resume(
             ResumeError.BAD_TYPE, f"Unsupported content type: {content_type}."
         )
     return None
+
+
+def sniff_resume(data: bytes) -> ResumeValidation | None:
+    """Verify the file's actual leading bytes match an allowed type — catches a malicious
+    file renamed to .pdf. (Declared extension/content-type are spoofable; this is the real check.)"""
+    head = data[:8]
+    if head.startswith(_SIG_PDF) or head.startswith(_SIG_ZIP) or head.startswith(_SIG_OLE):
+        return None
+    return ResumeValidation(
+        ResumeError.BAD_CONTENT, "File contents don't match a PDF, DOC, or DOCX."
+    )

@@ -92,3 +92,43 @@ def test_list_patch_idempotent_and_illegal_transition(client, monkeypatch):
 
 def test_get_unknown_lead_returns_404(client):
     assert client.get(f"/api/leads/{uuid.uuid4()}").status_code == 404
+
+
+def test_post_rejects_spoofed_pdf_by_magic_bytes(client, monkeypatch):
+    """A file named cv.pdf with a pdf content-type but non-PDF bytes is rejected (415)."""
+    import app.api.routes_leads as routes
+
+    monkeypatch.setattr(routes, "send_new_lead_notifications", Mock())
+    files = {"resume": ("cv.pdf", io.BytesIO(b"<html>totally not a pdf</html>"), "application/pdf")}
+    assert client.post("/api/leads", data=_fields(), files=files).status_code == 415
+
+
+def test_patch_notes_updates_without_changing_state(client, monkeypatch):
+    import app.api.routes_leads as routes
+
+    monkeypatch.setattr(routes, "send_new_lead_notifications", Mock())
+    lead_id = client.post("/api/leads", data=_fields(email="n@x.com"), files=_pdf()).json()["id"]
+
+    res = client.patch(f"/api/leads/{lead_id}", json={"notes": "Left a voicemail Tuesday."})
+    assert res.status_code == 200
+    body = res.json()
+    assert body["notes"] == "Left a voicemail Tuesday."
+    assert body["state"] == "PENDING"  # notes-only update doesn't advance state
+
+    assert client.get(f"/api/leads/{lead_id}").json()["notes"] == "Left a voicemail Tuesday."
+
+
+def test_public_form_is_rate_limited(client, monkeypatch):
+    import app.api.routes_leads as routes
+    from app.core import ratelimit
+    from app.core.config import settings
+
+    monkeypatch.setattr(routes, "send_new_lead_notifications", Mock())
+    monkeypatch.setattr(settings, "rate_limit_public", "3/minute")
+    ratelimit.reset()
+
+    codes = [
+        client.post("/api/leads", data=_fields(email=f"u{i}@x.com"), files=_pdf()).status_code
+        for i in range(4)
+    ]
+    assert codes == [201, 201, 201, 429]

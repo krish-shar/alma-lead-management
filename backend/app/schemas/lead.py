@@ -38,6 +38,7 @@ class LeadRead(BaseModel):
     email: EmailStr
     resume_filename: str
     state: LeadState
+    notes: str
     created_at: datetime
     updated_at: datetime
     reached_out_at: datetime | None
@@ -49,6 +50,15 @@ class LeadList(BaseModel):
 
 
 class LeadUpdate(BaseModel):
-    """Only the state may be updated, and only forward (DESIGN.md 1.3 / 9)."""
+    """An attorney may advance the state (forward-only) and/or edit the private notes.
+    Both fields are optional so the dashboard can patch them independently."""
 
-    state: LeadState
+    state: LeadState | None = None
+    notes: str | None = None
+
+    @field_validator("notes")
+    @classmethod
+    def notes_length(cls, v: str | None) -> str | None:
+        if v is not None and len(v) > 5000:
+            raise ValueError("notes must be 5000 characters or fewer")
+        return v

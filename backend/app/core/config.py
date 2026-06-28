@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     # --- Uploads ---
     max_resume_bytes: int = 4 * 1024 * 1024  # 4 MB (stays under Vercel's ~4.5MB limit)
 
+    # --- Rate limiting (public lead form) ---
+    rate_limit_enabled: bool = True
+    rate_limit_public: str = "20/minute"
+
     # --- Email ---
     email_provider: str = "smtp"  # "smtp" (Mailpit, local) | "resend" (hosted)
     email_from: str = "Alma Recruiting <noreply@alma.test>"

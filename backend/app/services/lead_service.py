@@ -81,6 +81,14 @@ class LeadService:
             lead.resume_key, lead.resume_filename, settings.resume_url_ttl_seconds
         )
 
+    def update_notes(self, lead_id: uuid.UUID, notes: str) -> Lead:
+        """Replace the private attorney notes on a lead."""
+        lead = self.get_lead(lead_id)
+        lead.notes = notes
+        self.db.commit()
+        self.db.refresh(lead)
+        return lead
+
     def transition(self, lead_id: uuid.UUID, target: LeadState) -> Lead:
         """Apply the one-way state machine.
 

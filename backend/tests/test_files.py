@@ -1,4 +1,4 @@
-from app.core.files import ResumeError, sanitize_filename, validate_resume
+from app.core.files import ResumeError, sanitize_filename, sniff_resume, validate_resume
 
 MAX = 4 * 1024 * 1024
 
@@ -37,3 +37,13 @@ def test_validate_bad_content_type():
     assert (
         validate_resume("cv.pdf", "application/x-evil", 10, MAX).reason == ResumeError.BAD_TYPE
     )
+
+
+def test_sniff_accepts_real_signatures():
+    assert sniff_resume(b"%PDF-1.7\n...") is None
+    assert sniff_resume(b"PK\x03\x04rest-of-docx") is None  # DOCX is a zip
+    assert sniff_resume(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1rest") is None  # legacy .doc OLE2
+
+
+def test_sniff_rejects_spoofed_file():
+    assert sniff_resume(b"<html>not a real document").reason == ResumeError.BAD_CONTENT
