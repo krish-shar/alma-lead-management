@@ -13,6 +13,7 @@ export type Lead = {
   email: string;
   resume_filename: string;
   state: LeadState;
+  notes: string;
   created_at: string;
   updated_at: string;
   reached_out_at: string | null;

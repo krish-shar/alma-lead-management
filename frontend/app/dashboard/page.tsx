@@ -6,35 +6,18 @@ import { Logo } from "@/components/Logo";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Toast, useToast } from "@/components/Toast";
 import { ChevronRight, Download, SignOut } from "@/components/icons";
-import { fmtDate, fullName, initials, type Lead, type LeadState } from "@/lib/api";
+import { fmtDate, fullName, initials, type Lead } from "@/lib/api";
 import { signOut, useSession } from "@/lib/auth-client";
+import { exportLeadsCsv } from "@/lib/csv";
 import { downloadResume, fetchLeads, markReachedOut, UnauthorizedError } from "@/lib/leads-client";
 
 type Filter = "ALL" | "PENDING" | "REACHED_OUT";
-
-const EMPTY_COPY: Record<string, { title: string; body: string }> = {
-  none: {
-    title: "No leads yet",
-    body: "New prospect applications will appear here the moment they’re submitted.",
-  },
-  PENDING: {
-    title: "All caught up",
-    body: "Every lead has been reached out to. Nice work — nothing is waiting on you.",
-  },
-  REACHED_OUT: {
-    title: "Nothing here yet",
-    body: "Leads you’ve marked as reached out will collect here for your records.",
-  },
-};
+type SortKey = "name" | "status" | "submitted";
+type Sort = { key: SortKey; dir: "asc" | "desc" };
 
 function nameInitials(name?: string | null): string {
   if (!name) return "··";
-  return name
-    .split(/\s+/)
-    .map((w) => w[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
+  return name.split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
 }
 
 export default function DashboardPage() {
@@ -45,6 +28,8 @@ export default function DashboardPage() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Filter>("ALL");
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<Sort>({ key: "submitted", dir: "desc" });
 
   useEffect(() => {
     let active = true;
@@ -61,10 +46,50 @@ export default function DashboardPage() {
 
   const pendingCount = useMemo(() => leads.filter((l) => l.state === "PENDING").length, [leads]);
   const reachedCount = leads.length - pendingCount;
-  const rows = useMemo(
-    () => (filter === "ALL" ? leads : leads.filter((l) => l.state === filter)),
-    [leads, filter],
-  );
+
+  // Leads whose email matches an EARLIER submission (a re-application).
+  const duplicateIds = useMemo(() => {
+    const byEmail = new Map<string, Lead[]>();
+    for (const l of leads) {
+      const key = l.email.toLowerCase();
+      const list = byEmail.get(key) ?? [];
+      list.push(l);
+      byEmail.set(key, list);
+    }
+    const dups = new Set<string>();
+    for (const group of byEmail.values()) {
+      if (group.length > 1) {
+        [...group]
+          .sort((a, b) => a.created_at.localeCompare(b.created_at))
+          .slice(1)
+          .forEach((l) => dups.add(l.id));
+      }
+    }
+    return dups;
+  }, [leads]);
+
+  const rows = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    let out = filter === "ALL" ? leads : leads.filter((l) => l.state === filter);
+    if (q) {
+      out = out.filter(
+        (l) => fullName(l).toLowerCase().includes(q) || l.email.toLowerCase().includes(q),
+      );
+    }
+    const dir = sort.dir === "asc" ? 1 : -1;
+    return [...out].sort((a, b) => {
+      if (sort.key === "name") return fullName(a).localeCompare(fullName(b)) * dir;
+      if (sort.key === "status") return a.state.localeCompare(b.state) * dir;
+      return a.created_at.localeCompare(b.created_at) * dir;
+    });
+  }, [leads, filter, query, sort]);
+
+  const toggleSort = (key: SortKey) =>
+    setSort((s) =>
+      s.key === key
+        ? { key, dir: s.dir === "asc" ? "desc" : "asc" }
+        : { key, dir: key === "submitted" ? "desc" : "asc" },
+    );
 
   const onMarkReached = useCallback(
     async (id: string) => {
@@ -113,7 +138,9 @@ export default function DashboardPage() {
               <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-accent-soft font-serif text-sm font-semibold text-accent-soft-ink">
                 {nameInitials(session?.user?.name)}
               </span>
-              <span className="text-sm font-semibold text-ink-2">{session?.user?.name ?? "Attorney"}</span>
+              <span className="hidden text-sm font-semibold text-ink-2 sm:inline">
+                {session?.user?.name ?? "Attorney"}
+              </span>
             </div>
             <button
               onClick={handleSignOut}
@@ -127,7 +154,7 @@ export default function DashboardPage() {
       </div>
 
       <main className="mx-auto max-w-[1180px] px-6 pb-[70px] pt-8">
-        <div className="mb-6 flex flex-wrap items-end justify-between gap-[18px]">
+        <div className="mb-5 flex flex-wrap items-end justify-between gap-[18px]">
           <div>
             <h1 className="m-0 mb-1.5 font-serif text-[clamp(28px,3.4vw,36px)] font-medium tracking-[-0.02em]">
               Leads
@@ -143,25 +170,51 @@ export default function DashboardPage() {
           </div>
         </div>
 
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="relative max-w-[320px] flex-1">
+            <svg className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-2" width="16" height="16" viewBox="0 0 18 18" fill="none" aria-hidden>
+              <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.5" />
+              <path d="M12.5 12.5L16 16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search by name or email…"
+              aria-label="Search leads"
+              className="h-10 w-full rounded-[10px] border border-line-2 bg-surface pl-9 pr-3 text-sm text-ink outline-none transition-[border-color,box-shadow] focus:border-accent focus:shadow-[0_0_0_3px_var(--color-accent-soft)]"
+            />
+          </div>
+          <button
+            onClick={() => exportLeadsCsv(rows)}
+            disabled={rows.length === 0}
+            className="inline-flex h-10 items-center gap-2 rounded-[10px] border border-line-2 bg-surface px-3.5 text-[13.5px] font-semibold text-ink-2 transition-colors hover:border-accent hover:bg-accent-soft disabled:opacity-50"
+          >
+            <Download className="text-ink-2" />
+            Export CSV
+          </button>
+        </div>
+
         <div className="overflow-hidden rounded-2xl border border-line bg-surface shadow-[0_1px_2px_rgba(28,24,20,0.04),0_18px_40px_-30px_rgba(28,24,20,0.2)]">
           {loading ? (
             <Skeleton />
           ) : rows.length === 0 ? (
-            <Empty filter={filter} hasLeads={leads.length > 0} />
+            <Empty filter={filter} hasLeads={leads.length > 0} hasQuery={query.trim().length > 0} />
           ) : (
             <div className="overflow-x-auto">
-              <div className="min-w-[720px]">
-                <div className="grid grid-cols-[2.2fr_2.4fr_1.3fr_1.2fr_1.6fr] gap-4 border-b border-line bg-surface-2 px-[22px] py-[13px] text-[11.5px] font-bold uppercase tracking-[0.05em] text-muted-2">
-                  <div>Applicant</div>
-                  <div>Email</div>
-                  <div>Status</div>
-                  <div>Submitted</div>
+              <div className="min-w-[760px]">
+                <div className="grid grid-cols-[2.2fr_2.4fr_1.3fr_1.2fr_1.6fr] gap-4 border-b border-line bg-surface-2 px-[22px] py-[11px] text-[11.5px] font-bold uppercase tracking-[0.05em] text-muted-2">
+                  <SortHeader label="Applicant" active={sort.key === "name"} dir={sort.dir} onClick={() => toggleSort("name")} />
+                  <div className="flex items-center">Email</div>
+                  <SortHeader label="Status" active={sort.key === "status"} dir={sort.dir} onClick={() => toggleSort("status")} />
+                  <SortHeader label="Submitted" active={sort.key === "submitted"} dir={sort.dir} onClick={() => toggleSort("submitted")} />
                   <div className="text-right">Actions</div>
                 </div>
                 {rows.map((lead) => (
                   <LeadRow
                     key={lead.id}
                     lead={lead}
+                    isDuplicate={duplicateIds.has(lead.id)}
                     onOpen={() => router.push(`/dashboard/${lead.id}`)}
                     onMarkReached={() => onMarkReached(lead.id)}
                     onDownload={() => onDownload(lead)}
@@ -176,17 +229,7 @@ export default function DashboardPage() {
   );
 }
 
-function FilterTab({
-  label,
-  count,
-  active,
-  onClick,
-}: {
-  label: string;
-  count: number;
-  active: boolean;
-  onClick: () => void;
-}) {
+function FilterTab({ label, count, active, onClick }: { label: string; count: number; active: boolean; onClick: () => void }) {
   return (
     <button
       role="tab"
@@ -201,13 +244,30 @@ function FilterTab({
   );
 }
 
+function SortHeader({ label, active, dir, onClick }: { label: string; active: boolean; dir: "asc" | "desc"; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex items-center gap-1 text-left uppercase tracking-[0.05em] transition-colors hover:text-ink-2 ${active ? "text-ink-2" : ""}`}
+      aria-label={`Sort by ${label}`}
+    >
+      {label}
+      <span className={`text-[9px] leading-none ${active ? "opacity-100" : "opacity-25"}`}>
+        {active && dir === "asc" ? "▲" : "▼"}
+      </span>
+    </button>
+  );
+}
+
 function LeadRow({
   lead,
+  isDuplicate,
   onOpen,
   onMarkReached,
   onDownload,
 }: {
   lead: Lead;
+  isDuplicate: boolean;
   onOpen: () => void;
   onMarkReached: () => void;
   onDownload: () => void;
@@ -229,7 +289,15 @@ function LeadRow({
         <span className="inline-flex h-[34px] w-[34px] flex-none items-center justify-center rounded-full bg-accent-soft font-serif text-[13.5px] font-semibold text-accent-soft-ink">
           {initials(lead)}
         </span>
-        <span className="truncate text-[15px] font-semibold text-ink">{fullName(lead)}</span>
+        <div className="min-w-0">
+          <div className="truncate text-[15px] font-semibold text-ink">{fullName(lead)}</div>
+          {isDuplicate && (
+            <div className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-semibold text-pending-ink">
+              <span className="h-1 w-1 rounded-full bg-pending-dot" />
+              Re-application
+            </div>
+          )}
+        </div>
       </div>
       <div className="truncate text-sm text-body-2">{lead.email}</div>
       <div>
@@ -286,8 +354,19 @@ function Skeleton() {
   );
 }
 
-function Empty({ filter, hasLeads }: { filter: Filter; hasLeads: boolean }) {
-  const copy = hasLeads && filter !== "ALL" ? EMPTY_COPY[filter] : EMPTY_COPY.none;
+function Empty({ filter, hasLeads, hasQuery }: { filter: Filter; hasLeads: boolean; hasQuery: boolean }) {
+  let title = "No leads yet";
+  let body = "New prospect applications will appear here the moment they’re submitted.";
+  if (hasQuery) {
+    title = "No matches";
+    body = "No leads match your search. Try a different name or email.";
+  } else if (hasLeads && filter === "PENDING") {
+    title = "All caught up";
+    body = "Every lead has been reached out to. Nice work — nothing is waiting on you.";
+  } else if (hasLeads && filter === "REACHED_OUT") {
+    title = "Nothing here yet";
+    body = "Leads you’ve marked as reached out will collect here for your records.";
+  }
   return (
     <div className="px-7 py-16 text-center">
       <div className="mx-auto mb-[18px] flex h-[60px] w-[60px] items-center justify-center rounded-[15px] bg-line-3">
@@ -296,8 +375,8 @@ function Empty({ filter, hasLeads }: { filter: Filter; hasLeads: boolean }) {
           <path d="M9 10h10M9 14h10M9 18h6" stroke="#a99f8e" strokeWidth="1.5" strokeLinecap="round" />
         </svg>
       </div>
-      <h3 className="m-0 mb-[7px] font-serif text-[21px] font-medium">{copy.title}</h3>
-      <p className="mx-auto m-0 max-w-[26em] text-[14.5px] leading-[1.5] text-muted-2">{copy.body}</p>
+      <h3 className="m-0 mb-[7px] font-serif text-[21px] font-medium">{title}</h3>
+      <p className="mx-auto m-0 max-w-[26em] text-[14.5px] leading-[1.5] text-muted-2">{body}</p>
     </div>
   );
 }

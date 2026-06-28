@@ -44,9 +44,26 @@ export async function markReachedOut(id: string): Promise<Lead> {
   return res.json();
 }
 
-/** Fetch a fresh presigned download URL and open it. */
-export async function downloadResume(id: string): Promise<void> {
+export async function updateNotes(id: string, notes: string): Promise<Lead> {
+  const res = await ok(
+    await authedFetch(`/api/leads/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ notes }),
+    }),
+    "save notes",
+  );
+  return res.json();
+}
+
+/** Fetch a fresh, time-limited presigned URL for the resume (used for preview + download). */
+export async function getResumeUrl(id: string): Promise<string> {
   const res = await ok(await authedFetch(`/api/leads/${id}/resume`), "get resume");
   const { url } = (await res.json()) as { url: string };
-  window.open(url, "_blank", "noopener");
+  return url;
+}
+
+/** Open the resume in a new tab. */
+export async function downloadResume(id: string): Promise<void> {
+  window.open(await getResumeUrl(id), "_blank", "noopener");
 }
