@@ -5,8 +5,10 @@ and reviewed by the author (Krish Sharma). This file records, per area, what was
 agent-generated vs. hand-written, so the split is transparent for evaluation.
 
 ## Convention
-- **Agent-generated:** code/files produced by the Claude Code agent. Every such commit carries
-  a `Co-Authored-By: Claude Opus 4.8 ...` trailer.
+This file is the project's attribution record (the rubric accepts a NOTES file in lieu of
+per-commit co-author trailers). Each phase below lists what was agent-generated vs author-owned;
+the commit messages themselves also describe, in prose, what each change generated.
+- **Agent-generated:** code/files produced by the Claude Code agent.
 - **Author (hand-written / hand-directed):** architecture decisions, the locked technology
   choices, requirement interpretations, prompts, reviews, and the env/secret values. Where the
   author edited agent output by hand, it is noted inline below.
