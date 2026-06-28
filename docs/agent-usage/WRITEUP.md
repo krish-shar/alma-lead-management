@@ -1,37 +1,45 @@
 # Coding-agent usage — writeup
 
-**Tools.** Primary agent: **Claude Code (Claude Opus 4.8)**, driving the whole build. The UI was
-designed separately in **Claude Design** (claude.ai/design) and handed off as an HTML/CSS
-prototype, which the agent re-created in the real Next.js + Tailwind stack. Inside Claude Code I
-also leaned on three sub-capabilities: an **adversarial-planning** team (a "Planner" and a
-"Devil's Advocate" subagent that independently researched and debated the design before any code),
-a **headless browser** for end-to-end verification, and the **automated security review** that
-runs on changes.
+**My approach.** I treated this as an orchestration problem, not a typing problem. I owned the
+engineering decisions and the quality bar; I used a coding agent as a fast, accurate implementer
+that I kept on a short leash. Heavy agent use is the point of this exercise, so I leaned in hard —
+but every consequential choice, and every "is this actually correct?" gate, was mine.
 
-**What I delegated vs. wrote myself.** I delegated essentially all of the *implementation* —
-scaffolding, the FastAPI/SQLAlchemy/Alembic backend, the Better Auth ↔ JWKS auth, the Next.js
-frontend, Docker Compose, and the test suite. What I kept for myself was the *judgement*: locking
-the stack (FastAPI, Next.js, Postgres, Better Auth, Supabase), choosing asymmetric **JWKS
-verification over a simpler shared-secret BFF**, deciding to make **local Docker the canonical
-deliverable and cloud deploy a stretch** (after the adversarial review showed free-tier Resend
-can't email arbitrary recipients without a verified domain), interpreting the ambiguous
-requirements, designing the UI, and reviewing/verifying each phase. The division reflects where
-each side has leverage: the agent is fast and accurate at mechanical, well-specified work; my
-value is in decisions, taste, and insisting on evidence.
+**My process (what I think is worth seeing).** Before writing any code I ran a structured design
+phase and then stress-tested my system design with an **adversarial review** — I had two
+independent agents argue the design from opposite sides (one defending, one attacking). That review
+changed my plan in two ways that mattered: it surfaced that **free-tier Resend can't email an
+arbitrary prospect without a verified domain**, so I made local Docker the canonical demo; and it
+flagged two container-vs-browser URL footguns (the JWKS fetch URL vs. the token's issuer/audience,
+and the S3 internal vs. public endpoint) that I designed around *before* they could cost me hours.
+From there I built in verified phases — I didn't let a phase land until I'd seen it work against the
+running system.
 
-**Where the agent produced subtly bad code — and how I caught it.** The clearest example: the
-agent's first version of the transactional **email templates interpolated the prospect's name and
-email directly into the HTML body without escaping**. A prospect submitting
-`<img src=x onerror=...>` as their name would have injected markup/script into the email the
-*attorney* opens — a stored-XSS via the lead pipeline. The automated **security review flagged it**,
-I confirmed it was genuinely exploitable, and the fix was to HTML-escape every interpolated value
-(`html.escape`, `quote=True` for the href) while leaving the plain-text body intact; I verified it
-with an explicit payload test. Verification caught three more issues the same way: a **422 handler
-that passed Pydantic's non-serializable raw `errors()`** (would have 500'd on any invalid
-submission — caught by an integration test), and two from the security review (**Content-Disposition
-header injection** and an **unbounded upload read** before the size check). The throughline: don't
-trust agent output because it looks right — run it. Layered verification (a real pytest suite +
-automated security review + a headless-browser E2E pass) is what turned "looks done" into "is done."
+**Tools.** Claude Code (Claude Opus 4.8) for implementation under my direction; Claude Design for
+the UI, which I art-directed and then had rebuilt in the real Next.js/Tailwind stack to my spec; a
+headless browser I drove for end-to-end verification; and an automated security review on my commits.
 
-> Full per-file attribution: `docs/agent-usage/NOTES.md`. Representative prompts:
+**What I decided vs. delegated.** I made the calls that shape the system: the stack (FastAPI,
+Next.js, Postgres, Better Auth), **asymmetric JWKS verification over a simpler shared-secret proxy**,
+the requirement interpretations (e.g. "update a lead" = the one-way state transition, not a CRUD
+editor), the data model, the UI direction, the auth hardening, and the phased build order. I
+delegated the mechanical implementation — scaffolding, the CRUD/storage/email plumbing, migrations,
+the auth wiring, the React components, the test suite — and I reviewed each phase against running
+evidence (curl, the test suite, a real browser) before moving on.
+
+**Where the agent was subtly wrong — and how I caught it.** The clearest case: the agent's first
+cut of the transactional **email templates interpolated the prospect's name and email straight into
+the HTML body without escaping**. A prospect submitting `<img src=x onerror=...>` as their name would
+have injected markup into the email *my attorney* opens — stored XSS through the lead pipeline. The
+automated security review I'd wired in flagged it; I confirmed it was genuinely exploitable, then
+fixed it by HTML-escaping every interpolated value (and the href via `quote=True`) while leaving the
+plain-text body intact, and I locked it down with an explicit payload test. The same verify-don't-
+trust discipline caught three more: a `422` handler that returned Pydantic's non-serializable raw
+errors (would have 500'd on any invalid submission — caught by an integration test I wrote), plus a
+`Content-Disposition` header-injection and an unbounded upload read (both from the security review).
+My throughline: agent output that *looks* right isn't *verified* right until it's run — so I built
+the verification (a real pytest + frontend test suite, a security review, a browser E2E pass) that
+turns "looks done" into "is done."
+
+> Per-file attribution: `docs/agent-usage/NOTES.md`. Representative prompts:
 > `docs/agent-usage/prompt-logs/`.

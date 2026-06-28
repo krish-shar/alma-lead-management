@@ -16,8 +16,26 @@ export const auth = betterAuth({
   trustedOrigins: [process.env.BETTER_AUTH_URL ?? "http://localhost:3000"],
   emailAndPassword: {
     enabled: true,
+    minPasswordLength: 10,
+    maxPasswordLength: 128,
     // Internal tool: there is no public sign-up UI; attorneys are provisioned via the
-    // seed script. (A production deploy would set disableSignUp + an invite flow.)
+    // seed script. (A production deploy would set disableSignUp + an invite flow + MFA.)
+  },
+  // Session lifetime: 7-day expiry, refreshed daily on activity.
+  session: {
+    expiresIn: 60 * 60 * 24 * 7,
+    updateAge: 60 * 60 * 24,
+  },
+  // Brute-force protection. Enabled in dev too (Better Auth only auto-enables in prod).
+  // Sign-in is tightly limited per IP; session polling is exempt so the dashboard stays snappy.
+  rateLimit: {
+    enabled: true,
+    window: 60,
+    max: 100,
+    customRules: {
+      "/sign-in/email": { window: 60, max: 5 },
+      "/get-session": false,
+    },
   },
   plugins: [jwt()],
 });
