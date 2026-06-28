@@ -10,10 +10,13 @@ import { fmtDate, fullName, initials, type Lead } from "@/lib/api";
 import { signOut, useSession } from "@/lib/auth-client";
 import { exportLeadsCsv } from "@/lib/csv";
 import { downloadResume, fetchLeads, markReachedOut, UnauthorizedError } from "@/lib/leads-client";
-
-type Filter = "ALL" | "PENDING" | "REACHED_OUT";
-type SortKey = "name" | "status" | "submitted";
-type Sort = { key: SortKey; dir: "asc" | "desc" };
+import {
+  computeDuplicateIds,
+  type Filter,
+  type Sort,
+  type SortKey,
+  visibleLeads,
+} from "@/lib/leads-view";
 
 function nameInitials(name?: string | null): string {
   if (!name) return "··";
@@ -47,42 +50,11 @@ export default function DashboardPage() {
   const pendingCount = useMemo(() => leads.filter((l) => l.state === "PENDING").length, [leads]);
   const reachedCount = leads.length - pendingCount;
 
-  // Leads whose email matches an EARLIER submission (a re-application).
-  const duplicateIds = useMemo(() => {
-    const byEmail = new Map<string, Lead[]>();
-    for (const l of leads) {
-      const key = l.email.toLowerCase();
-      const list = byEmail.get(key) ?? [];
-      list.push(l);
-      byEmail.set(key, list);
-    }
-    const dups = new Set<string>();
-    for (const group of byEmail.values()) {
-      if (group.length > 1) {
-        [...group]
-          .sort((a, b) => a.created_at.localeCompare(b.created_at))
-          .slice(1)
-          .forEach((l) => dups.add(l.id));
-      }
-    }
-    return dups;
-  }, [leads]);
-
-  const rows = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    let out = filter === "ALL" ? leads : leads.filter((l) => l.state === filter);
-    if (q) {
-      out = out.filter(
-        (l) => fullName(l).toLowerCase().includes(q) || l.email.toLowerCase().includes(q),
-      );
-    }
-    const dir = sort.dir === "asc" ? 1 : -1;
-    return [...out].sort((a, b) => {
-      if (sort.key === "name") return fullName(a).localeCompare(fullName(b)) * dir;
-      if (sort.key === "status") return a.state.localeCompare(b.state) * dir;
-      return a.created_at.localeCompare(b.created_at) * dir;
-    });
-  }, [leads, filter, query, sort]);
+  const duplicateIds = useMemo(() => computeDuplicateIds(leads), [leads]);
+  const rows = useMemo(
+    () => visibleLeads(leads, filter, query, sort),
+    [leads, filter, query, sort],
+  );
 
   const toggleSort = (key: SortKey) =>
     setSort((s) =>
