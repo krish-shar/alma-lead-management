@@ -8,7 +8,14 @@ import { Toast, useToast } from "@/components/Toast";
 import { CheckSmall, ChevronLeft, Download, FileDoc } from "@/components/icons";
 import { fmtDateTime, fullName, initials, type Lead } from "@/lib/api";
 import { signOut } from "@/lib/auth-client";
-import { downloadResume, getLead, markReachedOut, UnauthorizedError } from "@/lib/leads-client";
+import {
+  downloadResume,
+  getResumeUrl,
+  getLead,
+  markReachedOut,
+  UnauthorizedError,
+  updateNotes,
+} from "@/lib/leads-client";
 
 export default function LeadDetailPage() {
   const router = useRouter();
@@ -19,11 +26,22 @@ export default function LeadDetailPage() {
   const [lead, setLead] = useState<Lead | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [resumeUrl, setResumeUrl] = useState<string | null>(null);
+  const [notes, setNotes] = useState("");
+  const [savingNotes, setSavingNotes] = useState(false);
 
   useEffect(() => {
     let active = true;
     getLead(id)
-      .then((l) => active && setLead(l))
+      .then((l) => {
+        if (!active) return;
+        setLead(l);
+        setNotes(l.notes);
+        // Fetch a presigned URL for the inline preview / download (PDFs preview inline).
+        getResumeUrl(id)
+          .then((url) => active && setResumeUrl(url))
+          .catch(() => undefined);
+      })
       .catch((err) => {
         if (err instanceof UnauthorizedError) router.replace("/login");
         else if (active) setNotFound(true);
@@ -45,6 +63,20 @@ export default function LeadDetailPage() {
     }
   }
 
+  async function onSaveNotes() {
+    if (!lead) return;
+    setSavingNotes(true);
+    try {
+      const updated = await updateNotes(lead.id, notes);
+      setLead(updated);
+      showToast("Notes saved.");
+    } catch {
+      showToast("Couldn’t save notes — please retry.");
+    } finally {
+      setSavingNotes(false);
+    }
+  }
+
   async function onDownload() {
     if (!lead) return;
     showToast(`Preparing ${lead.resume_filename}…`, 2200);
@@ -59,6 +91,9 @@ export default function LeadDetailPage() {
     await signOut();
     router.push("/login");
   }
+
+  const isPdf = lead?.resume_filename.toLowerCase().endsWith(".pdf") ?? false;
+  const notesDirty = lead !== null && notes !== lead.notes;
 
   return (
     <div className="min-h-screen bg-canvas">
@@ -115,19 +150,14 @@ export default function LeadDetailPage() {
             <div className="flex flex-wrap items-start gap-[22px]">
               <div className="flex min-w-[280px] flex-[2_1_380px] flex-col gap-[18px]">
                 <section className="rounded-2xl border border-line bg-surface p-6 shadow-[0_1px_2px_rgba(28,24,20,0.04)]">
-                  <h2 className="m-0 mb-4 text-xs font-bold uppercase tracking-[0.05em] text-muted-2">
-                    Contact
-                  </h2>
+                  <h2 className="m-0 mb-4 text-xs font-bold uppercase tracking-[0.05em] text-muted-2">Contact</h2>
                   <dl className="m-0 flex flex-col gap-[15px]">
                     <Field label="First name" value={lead.first_name} />
                     <Field label="Last name" value={lead.last_name} />
                     <div className="flex flex-wrap gap-x-4 gap-y-1">
                       <dt className="flex-[0_0_130px] text-sm text-muted-2">Email</dt>
                       <dd className="m-0 text-[15px] font-medium">
-                        <a
-                          href={`mailto:${lead.email}`}
-                          className="border-b border-accent-soft text-accent no-underline"
-                        >
+                        <a href={`mailto:${lead.email}`} className="border-b border-accent-soft text-accent no-underline">
                           {lead.email}
                         </a>
                       </dd>
@@ -140,9 +170,7 @@ export default function LeadDetailPage() {
                 </section>
 
                 <section className="rounded-2xl border border-line bg-surface p-6 shadow-[0_1px_2px_rgba(28,24,20,0.04)]">
-                  <h2 className="m-0 mb-4 text-xs font-bold uppercase tracking-[0.05em] text-muted-2">
-                    Resume / CV
-                  </h2>
+                  <h2 className="m-0 mb-4 text-xs font-bold uppercase tracking-[0.05em] text-muted-2">Resume / CV</h2>
                   <div className="flex items-center gap-3.5">
                     <span className="inline-flex h-11 w-11 flex-none items-center justify-center rounded-[11px] bg-accent-soft text-accent">
                       <FileDoc />
@@ -159,26 +187,52 @@ export default function LeadDetailPage() {
                       Download
                     </button>
                   </div>
+                  {isPdf && resumeUrl ? (
+                    <iframe
+                      src={resumeUrl}
+                      title="Resume preview"
+                      className="mt-4 h-[460px] w-full rounded-lg border border-line-3 bg-white"
+                    />
+                  ) : (
+                    !isPdf && (
+                      <p className="mt-4 rounded-lg bg-surface-2 px-4 py-3 text-[13px] text-muted-2">
+                        Inline preview is available for PDFs. Download to view this {lead.resume_filename.split(".").pop()?.toUpperCase()} file.
+                      </p>
+                    )
+                  )}
+                </section>
+
+                <section className="rounded-2xl border border-line bg-surface p-6 shadow-[0_1px_2px_rgba(28,24,20,0.04)]">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h2 className="m-0 text-xs font-bold uppercase tracking-[0.05em] text-muted-2">Private notes</h2>
+                    <span className="text-[12px] text-faint">Visible to attorneys only</span>
+                  </div>
+                  <textarea
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    rows={5}
+                    maxLength={5000}
+                    placeholder="Record outreach attempts, case details, next steps…"
+                    className="w-full resize-y rounded-[11px] border border-line-2 bg-white p-3.5 text-[14.5px] leading-relaxed text-ink outline-none transition-[border-color,box-shadow] focus:border-accent focus:shadow-[0_0_0_3px_var(--color-accent-soft)]"
+                  />
+                  <div className="mt-3 flex items-center justify-end gap-3">
+                    {notesDirty && <span className="text-[12.5px] text-muted-2">Unsaved changes</span>}
+                    <button
+                      onClick={onSaveNotes}
+                      disabled={savingNotes || !notesDirty}
+                      className="inline-flex h-9 items-center rounded-[10px] bg-accent px-4 text-[13.5px] font-semibold text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+                    >
+                      {savingNotes ? "Saving…" : "Save notes"}
+                    </button>
+                  </div>
                 </section>
               </div>
 
               <aside className="min-w-[240px] flex-[1_1_260px] rounded-2xl border border-line bg-surface p-6 shadow-[0_1px_2px_rgba(28,24,20,0.04)]">
-                <h2 className="m-0 mb-5 text-xs font-bold uppercase tracking-[0.05em] text-muted-2">
-                  Timeline
-                </h2>
+                <h2 className="m-0 mb-5 text-xs font-bold uppercase tracking-[0.05em] text-muted-2">Timeline</h2>
                 <ol className="m-0 flex list-none flex-col p-0">
-                  <TimelineItem
-                    title="Application submitted"
-                    when={fmtDateTime(lead.created_at)}
-                    dot="bg-accent"
-                    line
-                  />
-                  <TimelineItem
-                    title="Last updated"
-                    when={fmtDateTime(lead.updated_at)}
-                    dot="bg-line-2"
-                    line
-                  />
+                  <TimelineItem title="Application submitted" when={fmtDateTime(lead.created_at)} dot="bg-accent" line />
+                  <TimelineItem title="Last updated" when={fmtDateTime(lead.updated_at)} dot="bg-line-2" line />
                   <TimelineItem
                     title="Reached out"
                     when={fmtDateTime(lead.reached_out_at)}
@@ -203,17 +257,7 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
-function TimelineItem({
-  title,
-  when,
-  dot,
-  line = false,
-}: {
-  title: string;
-  when: string;
-  dot: string;
-  line?: boolean;
-}) {
+function TimelineItem({ title, when, dot, line = false }: { title: string; when: string; dot: string; line?: boolean }) {
   return (
     <li className={`relative flex gap-[13px] ${line ? "pb-[18px]" : ""}`}>
       {dot === "dashed" ? (
@@ -242,13 +286,8 @@ function NotFoundState() {
   return (
     <div className="py-20 text-center">
       <h1 className="m-0 mb-2 font-serif text-[28px] font-medium">Lead not found</h1>
-      <p className="m-0 mb-6 text-[15px] text-muted-2">
-        This lead may have been removed, or the link is incorrect.
-      </p>
-      <Link
-        href="/dashboard"
-        className="inline-flex h-11 items-center rounded-xl bg-accent px-5 text-sm font-semibold text-white transition-colors hover:bg-accent-hover"
-      >
+      <p className="m-0 mb-6 text-[15px] text-muted-2">This lead may have been removed, or the link is incorrect.</p>
+      <Link href="/dashboard" className="inline-flex h-11 items-center rounded-xl bg-accent px-5 text-sm font-semibold text-white transition-colors hover:bg-accent-hover">
         Back to all leads
       </Link>
     </div>

@@ -75,6 +75,15 @@ usage against docs" discipline, given this was the riskiest integration. Files: 
 `scripts/seed-attorney.sh`. Verified the full spike: seed → sign-in → mint EdDSA JWT →
 protected call 200, bogus token 401; auth tables coexist with `leads` (Alembic filter holds).
 
+## Nice-to-have features (author-requested, agent-built)
+Eight extras, each built + tested + verified in a real browser:
+- **Backend:** attorney notes (column + migration + PATCH), magic-byte resume validation
+  (rejects a renamed file with 415), per-IP rate limiting on the public form (429). +5 tests.
+- **Frontend:** dashboard search (name/email), sortable columns, CSV export, duplicate-email
+  ("Re-application") flag; lead-detail private notes (save/persist) + inline PDF resume preview.
+- Verified live: spoofed .pdf → 415, notes round-trip to the DB, search filters, duplicate flag
+  on the newer of two same-email leads, PDF preview iframe loads the presigned URL.
+
 ## Phase 3 — Internal dashboard UI (from the Claude Design handoff)
 Agent-generated implementation of the design's Login, Dashboard, and Lead-detail screens,
 wired to the real authed API. `frontend/app/login/page.tsx` (Better Auth sign-in),
