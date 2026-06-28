@@ -30,3 +30,13 @@ agent-generated vs. hand-written, so the split is transparent for evaluation.
 **Verification (author-run via agent):** `docker compose up` → all 5 services healthy;
 `/api/health` returns `{db: ok, storage: ok}`; frontend renders; Mailpit + MinIO consoles reachable;
 `make seed` creates the storage bucket.
+
+## Notable agent mistake caught & fixed (for the writeup)
+**XSS / HTML injection in email templates** (`backend/app/services/email/templates.py`).
+The agent's first version interpolated user-controlled values (prospect first/last name, email)
+directly into the **HTML** email body without escaping — so a prospect submitting
+`<img src=x onerror=...>` as their name would inject markup into the email the *attorney* opens.
+Caught by the automated security review, confirmed real, and fixed by HTML-escaping every
+interpolated value (`html.escape`, with `quote=True` for the href URL) while leaving the
+plain-text body intact. Verified with an explicit payload test. This is a representative example
+of subtly unsafe agent output and how the review/verify loop caught it.

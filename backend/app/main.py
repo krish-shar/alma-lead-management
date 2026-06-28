@@ -9,7 +9,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import routes_health
+from app.api import routes_health, routes_leads
 from app.core.config import settings
 
 logging.basicConfig(level=logging.INFO)
@@ -25,6 +25,7 @@ app.add_middleware(
 )
 
 app.include_router(routes_health.router)
+app.include_router(routes_leads.router)
 
 
 @app.get("/")
