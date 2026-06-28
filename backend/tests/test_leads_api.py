@@ -18,7 +18,9 @@ def _fields(**over):
     return data
 
 
-def test_post_lead_persists_uploads_and_schedules_both_emails(client, db_session, storage, monkeypatch):
+def test_post_lead_persists_uploads_and_schedules_both_emails(
+    client, db_session, storage, monkeypatch
+):
     import app.api.routes_leads as routes
 
     notify = Mock()
@@ -63,16 +65,19 @@ def test_post_lead_validation_error(client, monkeypatch):
 
 def test_list_requires_authentication(unauth_client):
     assert unauth_client.get("/api/leads").status_code == 401
-    assert unauth_client.patch(
-        f"/api/leads/{uuid.uuid4()}", json={"state": "REACHED_OUT"}
-    ).status_code == 401
+    assert (
+        unauth_client.patch(f"/api/leads/{uuid.uuid4()}", json={"state": "REACHED_OUT"}).status_code
+        == 401
+    )
 
 
 def test_list_patch_idempotent_and_illegal_transition(client, monkeypatch):
     import app.api.routes_leads as routes
 
     monkeypatch.setattr(routes, "send_new_lead_notifications", Mock())
-    created = client.post("/api/leads", data=_fields(email="grace@example.com"), files=_pdf()).json()
+    created = client.post(
+        "/api/leads", data=_fields(email="grace@example.com"), files=_pdf()
+    ).json()
     lead_id = created["id"]
 
     listing = client.get("/api/leads").json()

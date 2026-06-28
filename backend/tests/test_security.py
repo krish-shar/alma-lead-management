@@ -34,7 +34,7 @@ def _make_keypair():
 
 
 def _token(priv, **overrides) -> str:
-    now = datetime.datetime.now(datetime.timezone.utc)
+    now = datetime.datetime.now(datetime.UTC)
     payload = {
         "sub": "attorney-1",
         "iss": ISSUER,
@@ -60,8 +60,10 @@ def test_valid_token_passes():
 
 def test_expired_token_rejected():
     priv, jwks = _make_keypair()
-    now = datetime.datetime.now(datetime.timezone.utc)
-    token = _token(priv, iat=now - datetime.timedelta(hours=1), exp=now - datetime.timedelta(minutes=30))
+    now = datetime.datetime.now(datetime.UTC)
+    token = _token(
+        priv, iat=now - datetime.timedelta(hours=1), exp=now - datetime.timedelta(minutes=30)
+    )
     with pytest.raises(jwt.ExpiredSignatureError):
         _verify(token, jwks)
 

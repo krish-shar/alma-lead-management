@@ -22,14 +22,10 @@ class LeadRepository:
     def get(self, lead_id: uuid.UUID) -> Lead | None:
         return self.db.get(Lead, lead_id)
 
-    def list(
-        self, state: LeadState | None, limit: int, offset: int
-    ) -> tuple[list[Lead], int]:
+    def list(self, state: LeadState | None, limit: int, offset: int) -> tuple[list[Lead], int]:
         filters = [Lead.state == state] if state is not None else []
 
-        total = self.db.scalar(
-            select(func.count()).select_from(Lead).where(*filters)
-        )
+        total = self.db.scalar(select(func.count()).select_from(Lead).where(*filters))
         items = self.db.scalars(
             select(Lead)
             .where(*filters)

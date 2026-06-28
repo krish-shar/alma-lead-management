@@ -79,9 +79,7 @@ def validate_resume(
             ResumeError.BAD_EXTENSION, "Resume must be a PDF, DOC, or DOCX file."
         )
     if content_type not in ALLOWED_RESUME_CONTENT_TYPES:
-        return ResumeValidation(
-            ResumeError.BAD_TYPE, f"Unsupported content type: {content_type}."
-        )
+        return ResumeValidation(ResumeError.BAD_TYPE, f"Unsupported content type: {content_type}.")
     return None
 
 
